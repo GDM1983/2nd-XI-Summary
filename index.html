@@ -315,7 +315,8 @@
 
   /* ---------- Footer ---------- */
   .app-foot{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:44px;padding-top:16px;border-top:1px solid var(--line);}
-  .save-pill{font-size:12px;color:var(--ink-soft);display:flex;align-items:center;gap:7px;}
+  .save-pill{font-size:12px;color:var(--ink-soft);display:flex;align-items:flex-start;gap:7px;}
+  .save-pill .save-dot{margin-top:4px;}
   .save-dot{width:7px;height:7px;border-radius:50%;background:var(--green);flex-shrink:0;}
   .save-dot.saving{background:var(--amber);animation:pulse 1s infinite;}
   .save-dot.local{background:var(--amber);}
@@ -510,20 +511,35 @@ function normDb(){
 }
 
 /* ============================= STORAGE ============================= */
+/* Turns a failed JSONBin response into a plain-English reason. */
+let lastSyncError = '';
+async function jbError(r, what){
+  let msg = '';
+  try{ const j = await r.json(); msg = j.message || ''; }catch(e){}
+  let why;
+  if(r.status===401) why = 'the API key was not accepted. Check it in Settings';
+  else if(r.status===404) why = 'the bin could not be found. Check the Index bin id in Settings';
+  else if(r.status===413 || /size|large|limit.*kb/i.test(msg)) why = 'the data is larger than your JSONBin plan allows for one bin';
+  else if(r.status===429 || /request/i.test(msg) && /exhaust|limit|quota/i.test(msg)) why = 'your JSONBin plan has run out of requests';
+  else if(r.status===403) why = msg ? `JSONBin refused it: ${msg}` : 'JSONBin refused it (403)';
+  else why = `JSONBin error ${r.status}${msg?': '+msg:''}`;
+  const e = new Error(`${what}: ${why}`); e.friendly = `${what}: ${why}`; return e;
+}
+function netError(e, what){ if(e && e.friendly) return e; const x = new Error(`${what}: no connection to jsonbin.io. Check the internet connection, or whether this network blocks jsonbin.io`); x.friendly = x.message; return x; }
 function jbHeaders(json){ const h={'X-Master-Key':cfg.apiKey}; if(json) h['Content-Type']='application/json'; return h; }
 async function jbGet(bin){
-  const r = await fetch(`${JB}/b/${bin}/latest`, {headers:jbHeaders()});
-  if(!r.ok) throw new Error('JSONBin read failed ('+r.status+')');
+  let r; try{ r = await fetch(`${JB}/b/${bin}/latest`, {headers:jbHeaders()}); }catch(e){ throw netError(e,'Loading'); }
+  if(!r.ok) throw await jbError(r, 'Loading');
   return (await r.json()).record;
 }
-async function jbPut(bin, data){
-  const r = await fetch(`${JB}/b/${bin}`, {method:'PUT', headers:jbHeaders(true), body:JSON.stringify(data)});
-  if(!r.ok) throw new Error('JSONBin update failed ('+r.status+')');
+async function jbPut(bin, data, what){
+  let r; try{ r = await fetch(`${JB}/b/${bin}`, {method:'PUT', headers:jbHeaders(true), body:JSON.stringify(data)}); }catch(e){ throw netError(e, what||'Saving'); }
+  if(!r.ok) throw await jbError(r, what||'Saving');
 }
 async function jbCreate(name, data){
   const h = jbHeaders(true); h['X-Bin-Name']=name.slice(0,120); h['X-Bin-Private']='true';
-  const r = await fetch(`${JB}/b`, {method:'POST', headers:h, body:JSON.stringify(data)});
-  if(!r.ok) throw new Error('JSONBin create failed ('+r.status+')');
+  let r; try{ r = await fetch(`${JB}/b`, {method:'POST', headers:h, body:JSON.stringify(data)}); }catch(e){ throw netError(e, 'Creating a bin'); }
+  if(!r.ok) throw await jbError(r, 'Creating a bin');
   return (await r.json()).metadata.id;
 }
 function jbDelete(bin){
@@ -552,7 +568,7 @@ function schedule(){
   db.pending = true;
   setSync(cfg.apiKey ? 'saving' : 'local');
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(()=>{ writeLocal(); pushCloud(); }, 900);
+  saveTimer = setTimeout(()=>{ writeLocal(); pushCloud(); }, 2500);
 }
 async function pushCloud(){
   if(!cfg.apiKey){ db.pending=false; writeLocal(); setSync('local'); return; }
@@ -565,24 +581,26 @@ async function pushCloud(){
       const [,sid,gid] = key.split(':');
       const s = db.seasons.find(x=>x.id===sid); const g = s && s.games.find(x=>x.id===gid);
       if(!g) continue;
-      if(g._bin) await jbPut(g._bin, g);
+      if(g._bin) await jbPut(g._bin, g, `Saving ${gameTitle(g)}`);
       else { g._bin = await jbCreate(`QB 2nd XI ${s.name} R${g.round} ${g.opponent}`, g); work.add('s:'+sid); }
     }
     for(const key of [...work].filter(k=>k.startsWith('s:'))){
       const s = db.seasons.find(x=>x.id===key.slice(2));
       if(!s || s.stub) continue;
-      if(s._bin) await jbPut(s._bin, seasonRecord(s));
+      if(s._bin) await jbPut(s._bin, seasonRecord(s), `Saving season ${s.name}`);
       else { s._bin = await jbCreate(`QB 2nd XI season ${s.name}`, seasonRecord(s)); work.add('i'); }
     }
     if(work.has('i')){
-      if(cfg.binId) await jbPut(cfg.binId, indexRecord());
+      if(cfg.binId) await jbPut(cfg.binId, indexRecord(), 'Saving settings, labels and logo');
       else { cfg.binId = await jbCreate('QB 2nd XI Season Review index', indexRecord()); saveCfg(); }
     }
     db.pending = dirty.size>0;
+    lastSyncError = '';
     writeLocal();
     setSync(dirty.size ? 'saving' : 'cloud');
   }catch(e){
     console.warn(e);
+    lastSyncError = (e && e.friendly) || (e && e.message) || 'Unknown problem';
     work.forEach(k=>dirty.add(k));
     writeLocal();
     setSync('error');
@@ -751,14 +769,16 @@ function wtpAverages(s){
 function gameWtpAvg(g){ const v=WTP_KEYS.map(k=>g.wtp[k].rating).filter(x=>x>0); return v.length ? v.reduce((a,b)=>a+b,0)/v.length : 0; }
 
 /* ============================= SYNC STATUS / TOAST ============================= */
-const SYNC_TEXT = {cloud:'Saved to JSONBin', saving:'Saving…', local:'Saved in this browser', error:'JSONBin unreachable, saved in this browser'};
+const SYNC_TEXT = {cloud:'Saved to JSONBin', saving:'Saving…', local:'Saved in this browser', error:'Not saved to JSONBin yet, safe in this browser'};
 function setSync(st){
   syncState = st;
   const el = document.getElementById('sync');
   if(el) el.innerHTML = syncInner();
 }
 function syncInner(){
-  return `<span class="save-dot ${syncState==='cloud'?'':syncState}"></span>${SYNC_TEXT[syncState]}${syncState==='error'?` <button class="link-btn" onclick="retrySync()">Try again</button>`:''}`;
+  const err = syncState==='error' && lastSyncError
+    ? `<span style="display:block;margin-top:3px;color:var(--red);font-size:11.5px;max-width:640px;">${esc(lastSyncError)}</span>` : '';
+  return `<span class="save-dot ${syncState==='cloud'?'':syncState}"></span><span>${SYNC_TEXT[syncState]}${syncState==='error'?` <button class="link-btn" onclick="retrySync()">Try again</button>`:''}${err}</span>`;
 }
 function retrySync(){ markAllDirty(); }
 let toastTimer=null;
@@ -1925,7 +1945,7 @@ function renderSettings(openGroup){
 
         <div class="modal-section">
           <h3>JSONBin</h3>
-          <div class="hint" style="margin-top:0;">${SYNC_TEXT[syncState]}.${cfg.binId?` Index bin <span class="code">${esc(cfg.binId)}</span>. Use this id on another device to open the same data.`:''}</div>
+          <div class="hint" style="margin-top:0;">${SYNC_TEXT[syncState]}.${syncState==='error'&&lastSyncError?` <b style="color:var(--red)">${esc(lastSyncError)}.</b>`:''}${cfg.binId?` Index bin <span class="code">${esc(cfg.binId)}</span>. Use this id on another device to open the same data.`:''}</div>
           <label class="field-label">API key (X-Master-Key)</label>
           <input type="password" id="cfg-key" value="${esc(cfg.apiKey)}" autocomplete="off">
           <label class="field-label">Index bin id</label>
@@ -1957,12 +1977,13 @@ function uploadLogo(file){
   reader.onload = ()=>{
     const img = new Image();
     img.onload = ()=>{
-      const maxH = 160, maxW = 480;
+      const maxH = 96, maxW = 320;
       const scale = Math.min(1, maxH/img.height, maxW/img.width);
       const c = document.createElement('canvas');
       c.width = Math.max(1, Math.round(img.width*scale)); c.height = Math.max(1, Math.round(img.height*scale));
       c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
-      db.logo = c.toDataURL('image/png');
+      const png = c.toDataURL('image/png'), webp = c.toDataURL('image/webp', 0.9);
+      db.logo = (webp.startsWith('data:image/webp') && webp.length < png.length) ? webp : png;
       touchIndex(); render(); renderSettings(); toast('Logo updated');
     };
     img.onerror = ()=>toast('That image could not be read');

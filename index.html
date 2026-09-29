@@ -22,7 +22,7 @@
   ::selection{background:var(--gold);color:var(--turf-deep);}
   button{font-family:inherit;}
   :focus-visible{outline:2px solid var(--gold);outline-offset:2px;}
-  .app{max-width:1060px;margin:0 auto;padding:24px 20px 40px;}
+  .app{max-width:1180px;margin:0 auto;padding:24px 20px 40px;}
   @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important;}}
 
   /* ---------- Maroon header (single header) ---------- */
@@ -228,7 +228,7 @@
   .sess-body{display:none;padding:0 20px 20px;border-top:1px solid var(--line-soft);}
   .sess-panel.open .sess-body{display:block;}
   .sess-scroll{overflow-x:auto;margin-top:16px;}
-  .sess-grid{display:grid;grid-template-columns:72px repeat(4,minmax(218px,1fr));gap:8px;min-width:970px;}
+  .sess-grid{display:grid;grid-template-columns:72px repeat(4,minmax(246px,1fr));gap:8px;min-width:1080px;}
   .sess-dayhead{font-family:var(--serif);font-weight:650;font-size:15px;color:var(--turf);padding:0 4px 2px;}
   .sess-label{font-size:12px;font-weight:700;color:var(--ink-soft);align-self:center;}
   .sess-cell{background:var(--bone);border-radius:11px;padding:8px;display:flex;flex-direction:column;gap:6px;}
@@ -239,9 +239,14 @@
   .bb button:hover{color:var(--turf);}
   .bb button.on-bat{background:var(--turf);color:var(--bone);}
   .bb button.on-bowl{background:var(--clay);color:var(--bone);}
+  .bb button.inn{border-left:1px solid var(--line);color:var(--turf);font-size:10.5px;padding:6px 5px;min-width:30px;}
+  .bb button.inn.manual{background:rgba(224,162,62,0.22);color:var(--turf-deep);}
+  .sess-total .stumps{border-top:1px solid rgba(110,27,60,0.15);margin-top:6px;padding-top:5px;font-size:11.5px;color:var(--ink-soft);line-height:1.45;}
+  .sess-total .stumps em{font-style:normal;font-weight:700;color:var(--ink);}
   .sess-total{background:rgba(110,27,60,0.06);border:1px solid rgba(110,27,60,0.15);border-radius:11px;padding:9px 10px;font-size:12.5px;line-height:1.6;font-variant-numeric:tabular-nums;}
-  .sess-total b{font-family:var(--serif);font-size:15px;color:var(--turf);}
-  .sess-total span{color:var(--ink-soft);display:inline-block;min-width:42px;}
+  .sess-total b{font-family:var(--serif);font-size:14px;color:var(--turf);}
+  .sess-total > div:not(.stumps){display:grid;grid-template-columns:42px 1fr;}
+  .sess-total span{color:var(--ink-soft);}
   .sess-legend{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:11.5px;color:var(--ink-soft);margin-top:12px;}
   .sess-legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px;}
   .stat-strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px;}
@@ -787,43 +792,80 @@ function toast(msg){
 function resetView(name){ return {name, sessOpen:false, gameId:null, tab:'summary', stab:view.stab||'trends', player:null, metric:null, addingMetric:false}; }
 function go(name){ view = resetView(name); render(); window.scrollTo(0,0); }
 /* ---- Session breakdown ---- */
+/* Works out which innings each slot belongs to, in the order play happened
+   (day, then session, then top line before bottom line). A team's innings number
+   goes up when it bats (or bowls) again after the other side has had a turn.
+   Tapping the 1st/2nd badge overrides it, e.g. for a follow-on. */
+function slotInnings(g){
+  const m = new Map(), c = {bat:0, bowl:0}; let last = null;
+  DAYS.forEach(d=>SESSIONS.forEach(n=>g.sessions[`d${d}s${n}`].forEach(sl=>{
+    if(!sl.role) return;
+    const r = sl.role;
+    if(sl.inn==='1' || sl.inn==='2') c[r] = +sl.inn;
+    else if(c[r]===0 || last!==r) c[r] = Math.min(2, c[r]+1);
+    m.set(sl, c[r]); last = r;
+  })));
+  return m;
+}
 function sessTotals(g, filter){
-  const t = {q:{r:0,w:0,n:0,b:0}, o:{r:0,w:0,n:0,b:0}};
+  const mk = ()=>({r:0,w:0,n:0,b:0});
+  const t = {q:mk(), o:mk(), q1:mk(), q2:mk(), o1:mk(), o2:mk()};
+  const inn = slotInnings(g);
   DAYS.forEach(d=>SESSIONS.forEach(n=>{
     if(filter && !filter(d,n)) return;
     g.sessions[`d${d}s${n}`].forEach(sl=>{
       if(!sl.role || (!has(sl.runs) && !has(sl.wkts) && !has(sl.overs))) return;
-      const side = sl.role==='bat' ? t.q : t.o;
-      side.r += num(sl.runs); side.w += num(sl.wkts); side.b += oversToBalls(sl.overs); side.n++;
+      const k = sl.role==='bat' ? 'q' : 'o';
+      [t[k], t[k+(inn.get(sl)||1)]].forEach(side=>{ side.r += num(sl.runs); side.w += num(sl.wkts); side.b += oversToBalls(sl.overs); side.n++; });
     });
   }));
   return t;
 }
+/* "10/281 (75 ov) & 1/53 (12 ov)" style, keeping each innings separate. */
+function innText(t, k, overs){
+  const f = x=> overs===false ? `${x.w}/${x.r}` : fmtWR(x);
+  const a = t[k+'1'], b = t[k+'2'];
+  if(a.n && b.n) return `${f(a)} & ${f(b)}`;
+  if(b.n) return `2nd inns ${f(b)}`;
+  if(a.n) return f(a);
+  return '–';
+}
 function fmtWR(x){ return x.n ? `${x.w}/${x.r}${x.b?` (${ballsToOvers(x.b)} ov)`:''}` : '–'; }
 function sessHasData(g){ const t=sessTotals(g); return t.q.n+t.o.n>0; }
+function scoreHint(g, k){ const x = sessTotals(g)[k]; return x.n ? `${x.w}/${x.r} from sessions` : ''; }
+function innLabel(n){ return n===2 ? '2nd inns' : '1st inns'; }
 function slotText(sl){ return (!sl.role || (!has(sl.runs)&&!has(sl.wkts)&&!has(sl.overs))) ? '' : `${num(sl.wkts)}/${num(sl.runs)}${has(sl.overs)?` (${sl.overs} ov)`:''}`; }
 function toggleSessions(){ view.sessOpen = !view.sessOpen; const el=document.getElementById('sess-panel'); if(el){ el.classList.toggle('open', view.sessOpen); el.querySelector('.sess-toggle').setAttribute('aria-expanded', view.sessOpen); } }
 function setSessRole(key, i, role){
   const g = G(), sl = g.sessions[key][i];
-  sl.role = sl.role===role ? '' : role; touchGame(g);
-  const cell = document.getElementById(`slot-${key}-${i}`);
-  if(cell) cell.querySelectorAll('.bb button').forEach(b=>{ b.className = sl.role===b.dataset.r ? 'on-'+b.dataset.r : ''; });
-  live();
+  sl.role = sl.role===role ? '' : role;
+  if(!sl.role) sl.inn = '';
+  touchGame(g); render();
+}
+function toggleSessInn(key, i){
+  const g = G(), sl = g.sessions[key][i];
+  const cur = slotInnings(g).get(sl) || 1;
+  sl.inn = cur===1 ? '2' : '1';
+  touchGame(g); render();
 }
 function setSess(key, i, field, val){ const g=G(); g.sessions[key][i][field]=val; touchGame(g); live(); }
 function sessSummaryInner(){
   const g = G(), t = sessTotals(g);
   if(!t.q.n && !t.o.n) return '';
-  return `QLD <b>${fmtWR(t.q)}</b>&nbsp;&nbsp; ${esc(oppShort(g))} <b>${fmtWR(t.o)}</b>`;
+  return `QLD <b>${esc(innText(t,'q'))}</b>&nbsp;&nbsp; ${esc(oppShort(g))} <b>${esc(innText(t,'o'))}</b>`;
 }
 function dayTotalInner(d){
   const g = G(), t = sessTotals(g, dd=>dd===+d);
-  return `<div><span>QLD</span><b>${fmtWR(t.q)}</b></div><div><span>${esc(oppShort(g))}</span><b>${fmtWR(t.o)}</b></div>`;
+  const run = sessTotals(g, dd=>dd<=+d);
+  const any = t.q.n || t.o.n;
+  return `<div><span>QLD</span><b>${esc(innText(t,'q'))}</b></div><div><span>${esc(oppShort(g))}</span><b>${esc(innText(t,'o'))}</b></div>
+    ${any ? `<div class="stumps"><em>Close of play</em><br>QLD ${esc(innText(run,'q',false))}, ${esc(oppShort(g))} ${esc(innText(run,'o',false))}</div>` : ''}`;
 }
 function sessionPanel(g){
   const open = !!view.sessOpen;
-  const slot = (key,i)=>{ const sl=g.sessions[key][i]; return `<div class="sess-slot" id="slot-${key}-${i}">
-      <div class="bb"><button data-r="bat" class="${sl.role==='bat'?'on-bat':''}" onclick="setSessRole('${key}',${i},'bat')">Bat</button><button data-r="bowl" class="${sl.role==='bowl'?'on-bowl':''}" onclick="setSessRole('${key}',${i},'bowl')">Bowl</button></div>
+  const innMap = slotInnings(g);
+  const slot = (key,i)=>{ const sl=g.sessions[key][i]; const inn=innMap.get(sl); return `<div class="sess-slot" id="slot-${key}-${i}">
+      <div class="bb"><button data-r="bat" class="${sl.role==='bat'?'on-bat':''}" onclick="setSessRole('${key}',${i},'bat')">Bat</button><button data-r="bowl" class="${sl.role==='bowl'?'on-bowl':''}" onclick="setSessRole('${key}',${i},'bowl')">Bowl</button>${sl.role?`<button class="inn ${sl.inn?'manual':''}" title="${sl.role==='bat'?'QLD':esc(oppShort(g))} ${innLabel(inn)}. Tap to change." aria-label="${innLabel(inn)}, tap to change" onclick="toggleSessInn('${key}',${i})">${inn===2?'2nd':'1st'}</button>`:''}</div>
       <input type="number" min="0" placeholder="Runs" aria-label="Runs" value="${esc(sl.runs)}" oninput="setSess('${key}',${i},'runs',this.value)">
       <input type="number" min="0" max="10" placeholder="W" aria-label="Wickets" value="${esc(sl.wkts)}" oninput="setSess('${key}',${i},'wkts',this.value)">
       <input type="text" inputmode="decimal" placeholder="Ov" aria-label="Overs" value="${esc(sl.overs)}" oninput="setSess('${key}',${i},'overs',this.value)">
@@ -839,7 +881,7 @@ function sessionPanel(g){
         ${SESSIONS.map(n=>`<div class="sess-label">Session ${n}</div>${DAYS.map(d=>`<div class="sess-cell">${slot(`d${d}s${n}`,0)}${slot(`d${d}s${n}`,1)}</div>`).join('')}`).join('')}
         <div class="sess-label">Day total</div>${DAYS.map(d=>`<div class="sess-total" data-live="dayTotal" data-arg="${d}">${dayTotalInner(d)}</div>`).join('')}
       </div></div>
-      <div class="sess-legend"><span><i style="background:var(--turf)"></i>Bat: QLD runs, wickets lost, overs</span><span><i style="background:var(--clay)"></i>Bowl: runs conceded, wickets taken, overs</span></div>
+      <div class="sess-legend"><span><i style="background:var(--turf)"></i>Bat: QLD runs, wickets lost, overs</span><span><i style="background:var(--clay)"></i>Bowl: runs conceded, wickets taken, overs</span><span>1st / 2nd shows the innings, worked out automatically. Tap it to change.</span></div>
     </div>
   </div>`;
 }
@@ -1190,10 +1232,10 @@ function tabSummary(g){
   <div class="panel">
     <div class="panel-head"><div class="panel-title">${LE('gs.scores')}</div></div>
     <div class="field-row four">
-      <div><label class="field-label">QLD 1st innings</label><input type="text" placeholder="e.g. 7/312 dec" value="${esc(g.scores.q1)}" oninput="setG('scores.q1',this.value)"></div>
-      <div><label class="field-label">${esc(o)} 1st innings</label><input type="text" value="${esc(g.scores.o1)}" oninput="setG('scores.o1',this.value)"></div>
-      <div><label class="field-label">QLD 2nd innings</label><input type="text" value="${esc(g.scores.q2)}" oninput="setG('scores.q2',this.value)"></div>
-      <div><label class="field-label">${esc(o)} 2nd innings</label><input type="text" value="${esc(g.scores.o2)}" oninput="setG('scores.o2',this.value)"></div>
+      <div><label class="field-label">QLD 1st innings</label><input type="text" placeholder="${esc(scoreHint(g,'q1')||'e.g. 7/312 dec')}" value="${esc(g.scores.q1)}" oninput="setG('scores.q1',this.value)"></div>
+      <div><label class="field-label">${esc(o)} 1st innings</label><input type="text" placeholder="${esc(scoreHint(g,'o1'))}" value="${esc(g.scores.o1)}" oninput="setG('scores.o1',this.value)"></div>
+      <div><label class="field-label">QLD 2nd innings</label><input type="text" placeholder="${esc(scoreHint(g,'q2'))}" value="${esc(g.scores.q2)}" oninput="setG('scores.q2',this.value)"></div>
+      <div><label class="field-label">${esc(o)} 2nd innings</label><input type="text" placeholder="${esc(scoreHint(g,'o2'))}" value="${esc(g.scores.o2)}" oninput="setG('scores.o2',this.value)"></div>
     </div>
   </div>
 
@@ -1612,15 +1654,16 @@ function msTableBlock(rows){
 /* Session breakdown laid out like the dressing-room sheet: days across, sessions down. */
 function sessionGridBlock(g){
   const days = DAYS.filter(d=>SESSIONS.some(n=>g.sessions[`d${d}s${n}`].some(slotText)));
+  const inn = slotInnings(g), o = oppShort(g);
   const cell = (d,n)=>{
     const sl = g.sessions[`d${d}s${n}`];
-    const lines = sl.filter(x=>slotText(x)).map(x=>`${x.role==='bat'?'Bat':'Bowl'} ${slotText(x)}`);
+    const lines = sl.filter(x=>slotText(x)).map(x=>`${x.role==='bat'?'Bat':'Bowl'}, ${innLabel(inn.get(x)||1)}: ${slotText(x)}`);
     return lines.join('\n') || '–';
   };
   const rows = SESSIONS.map(n=>[`Session ${n}`, ...days.map(d=>cell(d,n))]);
-  rows.push(['Day total', ...days.map(d=>{ const t=sessTotals(g, dd=>dd===d); return `QLD ${fmtWR(t.q)}\n${oppShort(g)} ${fmtWR(t.o)}`; })]);
-  if(days.length>1){ const t=sessTotals(g); rows.push(['Match total', `QLD ${fmtWR(t.q)}\n${oppShort(g)} ${fmtWR(t.o)}`, ...days.slice(1).map(()=> '')]); }
-  return {t:'table', head:['', ...days.map(d=>`Day ${d}`)], rows, left:true, totals:days.length>1?2:1};
+  rows.push(['Day total', ...days.map(d=>{ const t=sessTotals(g, dd=>dd===d); return `QLD ${innText(t,'q')}\n${o} ${innText(t,'o')}`; })]);
+  rows.push(['Close of play', ...days.map(d=>{ const t=sessTotals(g, dd=>dd<=d); return `QLD ${innText(t,'q',false)}\n${o} ${innText(t,'o',false)}`; })]);
+  return {t:'table', head:['', ...days.map(d=>`Day ${d}`)], rows, left:true, totals:2};
 }
 function matchReportBlocks(g, s, mode){
   mode = mode || exportMode;
@@ -1715,7 +1758,7 @@ function seasonReportBlocks(s){
     const sc = scoresLine(g);
     b.push({t:'h3', text:gameTitle(g), meta:[g.result, g.venue, fmtDate(g.date)].filter(Boolean).join(', ')});
     if(sc.q||sc.o) b.push({t:'small', text:`QLD ${sc.q||'–'}   ${oppShort(g)} ${sc.o||'–'}`});
-    if(sessHasData(g)) b.push({t:'small', text:`${L('gs.sessions')}: `+DAYS.filter(d=>sessTotals(g,dd=>dd===d).q.n+sessTotals(g,dd=>dd===d).o.n).map(d=>{ const t=sessTotals(g,dd=>dd===d); return `Day ${d} QLD ${fmtWR(t.q)}, ${oppShort(g)} ${fmtWR(t.o)}`; }).join('; ')});
+    if(sessHasData(g)) b.push({t:'small', text:`${L('gs.sessions')}: `+DAYS.filter(d=>sessTotals(g,dd=>dd===d).q.n+sessTotals(g,dd=>dd===d).o.n).map(d=>{ const t=sessTotals(g,dd=>dd<=d); return `Day ${d} close QLD ${innText(t,'q',false)}, ${oppShort(g)} ${innText(t,'o',false)}`; }).join('; ')});
     if(safeUrl(g.scorecardUrl)) b.push({t:'linkline', text:'Scorecard', href:safeUrl(g.scorecardUrl)});
     b.push({t:'p', text:g.summary});
   });

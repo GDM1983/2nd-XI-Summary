@@ -523,7 +523,7 @@ async function jbError(r, what){
   else if(r.status===429 || /request/i.test(msg) && /exhaust|limit|quota/i.test(msg)) why = 'your JSONBin plan has run out of requests';
   else if(r.status===403) why = msg ? `JSONBin refused it: ${msg}` : 'JSONBin refused it (403)';
   else why = `JSONBin error ${r.status}${msg?': '+msg:''}`;
-  const e = new Error(`${what}: ${why}`); e.friendly = `${what}: ${why}`; return e;
+  const e = new Error(`${what}: ${why}`); e.friendly = `${what}: ${why}`; e.status = r.status; return e;
 }
 function netError(e, what){ if(e && e.friendly) return e; const x = new Error(`${what}: no connection to jsonbin.io. Check the internet connection, or whether this network blocks jsonbin.io`); x.friendly = x.message; return x; }
 function jbHeaders(json){ const h={'X-Master-Key':cfg.apiKey}; if(json) h['Content-Type']='application/json'; return h; }
@@ -581,18 +581,31 @@ async function pushCloud(){
       const [,sid,gid] = key.split(':');
       const s = db.seasons.find(x=>x.id===sid); const g = s && s.games.find(x=>x.id===gid);
       if(!g) continue;
-      if(g._bin) await jbPut(g._bin, g, `Saving ${gameTitle(g)}`);
-      else { g._bin = await jbCreate(`QB 2nd XI ${s.name} R${g.round} ${g.opponent}`, g); work.add('s:'+sid); }
+      if(g._bin){
+        try{ await jbPut(g._bin, g, `Saving ${gameTitle(g)}`); }
+        catch(e){ if(e.status!==404) throw e; g._bin = null; }   // bin was deleted in JSONBin: make a new one below
+      }
+      if(!g._bin){ g._bin = await jbCreate(`QB 2nd XI ${s.name} R${g.round} ${g.opponent}`, g); work.add('s:'+sid); }
     }
     for(const key of [...work].filter(k=>k.startsWith('s:'))){
       const s = db.seasons.find(x=>x.id===key.slice(2));
       if(!s || s.stub) continue;
-      if(s._bin) await jbPut(s._bin, seasonRecord(s), `Saving season ${s.name}`);
-      else { s._bin = await jbCreate(`QB 2nd XI season ${s.name}`, seasonRecord(s)); work.add('i'); }
+      if(s._bin){
+        try{ await jbPut(s._bin, seasonRecord(s), `Saving season ${s.name}`); }
+        catch(e){ if(e.status!==404) throw e; s._bin = null; }   // bin was deleted in JSONBin: make a new one below
+      }
+      if(!s._bin){ s._bin = await jbCreate(`QB 2nd XI season ${s.name}`, seasonRecord(s)); work.add('i'); }
     }
     if(work.has('i')){
-      if(cfg.binId) await jbPut(cfg.binId, indexRecord(), 'Saving settings, labels and logo');
-      else { cfg.binId = await jbCreate('QB 2nd XI Season Review index', indexRecord()); saveCfg(); }
+      let replaced = false;
+      if(cfg.binId){
+        try{ await jbPut(cfg.binId, indexRecord(), 'Saving settings, labels and logo'); }
+        catch(e){ if(e.status!==404) throw e; cfg.binId = ''; replaced = true; }
+      }
+      if(!cfg.binId){
+        cfg.binId = await jbCreate('QB 2nd XI Season Review index', indexRecord()); saveCfg();
+        if(replaced) alert(`Your index bin had been deleted in JSONBin, so a new one was created.\n\nNew Index bin id: ${cfg.binId}\n\nEnter this new id in Settings on your other devices.`);
+      }
     }
     db.pending = dirty.size>0;
     lastSyncError = '';

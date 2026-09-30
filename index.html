@@ -241,6 +241,23 @@
   .it-team{font-size:12.5px;color:var(--ink-soft);}
   .it-v{font-family:var(--serif);font-size:17px;font-weight:650;color:var(--turf);}
   .it-day{border-top:1px solid rgba(110,27,60,0.15);margin-top:8px;padding-top:6px;font-size:11.5px;color:var(--ink-soft);}
+  .dt-line{display:grid;grid-template-columns:40px auto 1fr auto;column-gap:8px;align-items:baseline;padding:3px 0;}
+  .dt-line + .dt-line{border-top:1px solid rgba(110,27,60,0.1);}
+  .dt-ov{font-size:12px;color:var(--ink-soft);}
+  .dt-inn{font-size:11px;font-weight:700;color:var(--turf);background:rgba(110,27,60,0.08);padding:2px 7px;border-radius:100px;white-space:nowrap;}
+  .is-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;}
+  @media (max-width:700px){.is-grid{grid-template-columns:1fr 1fr;}}
+  .is-cell{background:var(--bone);border-radius:12px;padding:12px 14px;}
+  .is-v{font-family:var(--serif);font-size:26px;font-weight:650;color:var(--turf);margin-top:4px;line-height:1.1;}
+  .is-foot{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:12px;color:var(--ink-soft);margin-top:4px;min-height:30px;}
+  .is-foot .no-toggle{padding:4px 0;font-size:11.5px;}
+  .inn-strip{display:grid;grid-template-columns:72px repeat(4,1fr);gap:8px;margin-top:10px;align-items:stretch;}
+  .inn-strip-label{font-size:12px;font-weight:700;color:var(--ink-soft);align-self:center;}
+  .inn-cell{background:var(--turf);border-radius:11px;padding:10px 12px;}
+  .inn-cell .it-h{color:rgba(244,241,232,0.7);}
+  .inn-cell .it-v{color:var(--bone);font-size:20px;margin-top:2px;}
+  .inn-ov{font-size:11.5px;color:rgba(244,241,232,0.65);margin-top:1px;}
+  @media (max-width:700px){.inn-strip{grid-template-columns:1fr 1fr;} .inn-strip-label{grid-column:1/-1;}}
   .it-empty{color:var(--ink-soft);text-align:center;padding:14px 0;}
   .sess-legend{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:11.5px;color:var(--ink-soft);margin-top:12px;}
   .sess-legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px;}
@@ -458,7 +475,7 @@ const DAYS = [1,2,3,4], SESSIONS = [1,2,3];
 function blankSlot(){ return {role:'', runs:'', wkts:'', overs:''}; }
 function blankSessions(){ const o={}; DAYS.forEach(d=>SESSIONS.forEach(n=>{ o[`d${d}s${n}`]=[blankSlot(),blankSlot()]; })); return o; }
 function newGame(round){
-  return {id:uid(), round:String(round||''), opponent:'', venue:'', date:'', result:'', scorecardUrl:'', sessions:blankSessions(),
+  return {id:uid(), round:String(round||''), opponent:'', venue:'', date:'', result:'', scorecardUrl:'', sessions:blankSessions(), dec:{},
     scores:{q1:'',o1:'',q2:'',o2:''}, summary:'', positives:'', learnings:'',
     battingSummary:'', batters:[], partnerships:[], batMilestones:[],
     bowlingSummary:'', bowlMetrics:{}, bowlers:[], bowlMilestones:[],
@@ -716,7 +733,21 @@ function bowlFig(b){
   const one=(o,m,r,w)=> has(o) ? `${o}-${num(m)}-${num(r)}-${num(w)}` : '';
   return [one(b.i1o,b.i1m,b.i1r,b.i1w), one(b.i2o,b.i2m,b.i2r,b.i2w)].filter(Boolean).join(' & ');
 }
-function scoresLine(g){ return {q:[g.scores.q1,g.scores.q2].filter(Boolean).join(' & '), o:[g.scores.o1,g.scores.o2].filter(Boolean).join(' & ')}; }
+function innScore(g, k){
+  const x = sessTotals(g)[k];
+  if(x && x.n) return `${x.w}/${x.r}${g.dec && g.dec[k] ? ' dec' : ''}`;
+  return (g.scores && g.scores[k]) || '';
+}
+function innOvers(g, k){ const x = sessTotals(g)[k]; return x && x.n && x.b ? ballsToOvers(x.b) : ''; }
+function scoresLine(g){ return {q:[innScore(g,'q1'),innScore(g,'q2')].filter(Boolean).join(' & '), o:[innScore(g,'o1'),innScore(g,'o2')].filter(Boolean).join(' & ')}; }
+function innScoresInner(){
+  const g = G(), o = g.opponent || 'Opponent', t = sessTotals(g);
+  const cells = [['q1','QLD 1st innings'],['o1',o+' 1st innings'],['q2','QLD 2nd innings'],['o2',o+' 2nd innings']];
+  return `<div class="is-grid">${cells.map(([k,l])=>{ const sc = innScore(g,k), ov = innOvers(g,k);
+    return `<div class="is-cell"><div class="it-h">${esc(l)}</div><div class="is-v">${esc(sc||'–')}</div>
+      <div class="is-foot"><span>${ov?ov+' ov':''}</span>${t[k].n && t[k].w<10?`<label class="no-toggle"><input type="checkbox" ${g.dec&&g.dec[k]?'checked':''} onchange="setDec('${k}',this.checked)">Declared</label>`:''}</div></div>`; }).join('')}</div>`;
+}
+function setDec(k, on){ const g=G(); g.dec = g.dec||{}; g.dec[k] = on; touchGame(g); live(); }
 function playerNames(s){
   const set = new Map();
   s.games.forEach(g=>[...g.batters,...g.bowlers].forEach(p=>{ const n=(p.name||'').trim(); if(n && !set.has(pkey(n))) set.set(pkey(n), n); }));
@@ -888,16 +919,30 @@ function sessSummaryInner(){
   if(!t.q.n && !t.o.n) return '';
   return `QLD <b>${esc(innText(t,'q'))}</b>&nbsp;&nbsp; ${esc(oppShort(g))} <b>${esc(innText(t,'o'))}</b>`;
 }
+/* One running total per innings for the whole match (not per day). */
+function innCells(g){
+  const t = sessTotals(g), o = oppShort(g);
+  return [['QLD 1st innings', t.q1], [`${o} 1st innings`, t.o1], ['QLD 2nd innings', t.q2], [`${o} 2nd innings`, t.o2]];
+}
+function innStripInner(){
+  const g = G();
+  return `<div class="inn-strip-label">Innings totals</div>` + innCells(g).map(([l,x])=>`<div class="inn-cell"><div class="it-h">${esc(l)}</div><div class="it-v">${x.n?esc(`${x.w}/${x.r}`):'–'}</div>${x.n&&x.b?`<div class="inn-ov">${ballsToOvers(x.b)} ov</div>`:''}</div>`).join('');
+}
+/* That day's three sessions only, split by team and innings, in the order they happened. */
+function dayLines(g, d){
+  const inn = slotInnings(g), order = [], map = {};
+  SESSIONS.forEach(n=>g.sessions[`d${d}s${n}`].forEach(sl=>{
+    if(!sl.role || (!has(sl.runs) && !has(sl.wkts) && !has(sl.overs))) return;
+    const k = (sl.role==='bat'?'q':'o') + (inn.get(sl)||1);
+    if(!map[k]){ map[k] = {k, r:0, w:0, b:0, n:0}; order.push(map[k]); }
+    map[k].r += num(sl.runs); map[k].w += num(sl.wkts); map[k].b += oversToBalls(sl.overs); map[k].n++;
+  }));
+  return order.map(x=>({team: x.k[0]==='q' ? 'QLD' : oppShort(g), inn: x.k[1]==='2' ? '2nd inns' : '1st inns', score:`${x.w}/${x.r}`, overs: x.b ? ballsToOvers(x.b) : ''}));
+}
 function dayTotalInner(d){
-  const g = G(), day = sessTotals(g, dd=>dd===+d), run = sessTotals(g, dd=>dd<=+d);
-  if(!day.q.n && !day.o.n) return '<div class="it-empty">–</div>';
-  const v = x=> x.n ? `${x.w}/${x.r}` : '–';
-  return `<div class="it-grid">
-      <div></div><div class="it-h">1st inns</div><div class="it-h">2nd inns</div>
-      <div class="it-team">QLD</div><div class="it-v">${v(run.q1)}</div><div class="it-v">${v(run.q2)}</div>
-      <div class="it-team">${esc(oppShort(g))}</div><div class="it-v">${v(run.o1)}</div><div class="it-v">${v(run.o2)}</div>
-    </div>
-    <div class="it-day">Day ${d}: Bat ${esc(fmtWR(day.q))}, Bowl ${esc(fmtWR(day.o))}</div>`;
+  const lines = dayLines(G(), +d);
+  if(!lines.length) return '<div class="it-empty">–</div>';
+  return lines.map(l=>`<div class="dt-line"><span class="it-team">${esc(l.team)}</span><span class="it-v">${esc(l.score)}</span><span class="dt-ov">${l.overs?`(${l.overs})`:''}</span><span class="dt-inn">${l.inn}</span></div>`).join('');
 }
 function sessionPanel(g){
   const open = !!view.sessOpen;
@@ -911,13 +956,13 @@ function sessionPanel(g){
   return `<div class="panel sess-panel ${open?'open':''}" id="sess-panel">
     <button class="sess-toggle" aria-expanded="${open}" onclick="toggleSessions()">
       <span class="panel-title">${LE('gs.sessions')}</span>
-      <span class="sess-sum" data-live="sessSummary">${sessSummaryInner()}</span>${chevron()}
+${chevron()}
     </button>
     <div class="sess-body">
       <div class="sess-scroll"><div class="sess-grid">
         <div></div>${DAYS.map(d=>`<div class="sess-dayhead">Day ${d}</div>`).join('')}
         ${SESSIONS.map(n=>`<div class="sess-label">Session ${n}</div>${DAYS.map(d=>`<div class="sess-cell">${slot(`d${d}s${n}`,0)}${slot(`d${d}s${n}`,1)}</div>`).join('')}`).join('')}
-        <div class="sess-label">Innings totals</div>${DAYS.map(d=>`<div class="sess-total" data-live="dayTotal" data-arg="${d}">${dayTotalInner(d)}</div>`).join('')}
+        <div class="sess-label">Day total</div>${DAYS.map(d=>`<div class="sess-total" data-live="dayTotal" data-arg="${d}">${dayTotalInner(d)}</div>`).join('')}
       </div></div>
     </div>
   </div>`;
@@ -1063,6 +1108,7 @@ const LIVE = {
   msSummary: kind=>msSummaryInner(kind),
   sessSummary: ()=>sessSummaryInner(),
   dayTotal: d=>dayTotalInner(d),
+  innScores: ()=>innScoresInner(),
   exportPreview: ()=>blocksToHTML(matchReportBlocks(G(), S())),
   seasonPreview: ()=>blocksToHTML(seasonReportBlocks(S())),
 };
@@ -1179,7 +1225,7 @@ function matchHeroInner(g){
         ${(meta||url)?`<div class="snap-role">${esc(meta)}${url?`${meta?' ':''}<a href="${esc(url)}" target="_blank" rel="noopener">View scorecard</a>`:''}</div>`:''}</div>
       ${resultChip(g.result, true)}
     </div>
-    <div class="snap-grid">${cells.map(([k,l])=>`<div class="snap-card"><div class="snap-label" title="${esc(l)}">${esc(l)}</div><div class="snap-value score">${esc(g.scores[k]||'–')}</div></div>`).join('')}</div>`;
+    <div class="snap-grid">${cells.map(([k,l])=>`<div class="snap-card"><div class="snap-label" title="${esc(l)}">${esc(l)}</div><div class="snap-value score">${esc(innScore(g,k)||'–')}</div></div>`).join('')}</div>`;
 }
 function renderMatch(){
   const g = G();
@@ -1232,12 +1278,7 @@ function tabSummary(g){
 
   <div class="panel">
     <div class="panel-head"><div class="panel-title">${LE('gs.scores')}</div></div>
-    <div class="field-row four">
-      <div><label class="field-label">QLD 1st innings</label><input type="text" value="${esc(g.scores.q1)}" oninput="setG('scores.q1',this.value)"></div>
-      <div><label class="field-label">${esc(o)} 1st innings</label><input type="text" value="${esc(g.scores.o1)}" oninput="setG('scores.o1',this.value)"></div>
-      <div><label class="field-label">QLD 2nd innings</label><input type="text" value="${esc(g.scores.q2)}" oninput="setG('scores.q2',this.value)"></div>
-      <div><label class="field-label">${esc(o)} 2nd innings</label><input type="text" value="${esc(g.scores.o2)}" oninput="setG('scores.o2',this.value)"></div>
-    </div>
+    <div data-live="innScores">${innScoresInner()}</div>
   </div>
 
   <div class="panel">
@@ -1687,6 +1728,7 @@ function msTableBlock(rows){
   return {t:'table', head:['Player','Milestone','Detail','Innings'], rows:rows.map(m=>[m.player||'–', m.type||'–', m.detail||'–', inningsText(m.innings)])};
 }
 /* Session breakdown laid out like the dressing-room sheet: days across, sessions down. */
+function innTotalsBlock(g){ return {t:'kv', rows:innCells(g).map(([l,x])=>[l, fmtWR(x)])}; }
 function sessionGridBlock(g){
   const days = DAYS.filter(d=>SESSIONS.some(n=>g.sessions[`d${d}s${n}`].some(slotText)));
   const inn = slotInnings(g), o = oppShort(g);
@@ -1696,9 +1738,7 @@ function sessionGridBlock(g){
     return lines.join('\n') || '–';
   };
   const rows = SESSIONS.map(n=>[`Session ${n}`, ...days.map(d=>cell(d,n))]);
-  const v = x=> x.n ? `${x.w}/${x.r}` : '–';
-  rows.push(['Day (bat / bowl)', ...days.map(d=>{ const t=sessTotals(g, dd=>dd===d); return `Bat ${fmtWR(t.q)}\nBowl ${fmtWR(t.o)}`; })]);
-  rows.push(['Innings totals', ...days.map(d=>{ const t=sessTotals(g, dd=>dd<=d); return `1st: QLD ${v(t.q1)}, ${o} ${v(t.o1)}\n2nd: QLD ${v(t.q2)}, ${o} ${v(t.o2)}`; })]);
+  rows.push(['Day total', ...days.map(d=>dayLines(g,d).map(l=>`${l.team} ${l.score}${l.overs?` (${l.overs})`:''} ${l.inn}`).join('\n')||'–')]);
   return {t:'table', head:['', ...days.map(d=>`Day ${d}`)], rows, left:true, totals:1};
 }
 function matchReportBlocks(g, s, mode){
@@ -1709,7 +1749,7 @@ function matchReportBlocks(g, s, mode){
   const url = safeUrl(g.scorecardUrl);
   b.push({t:'title', text:`${L('gs.round')} ${g.round||'–'} v ${g.opponent||'Opponent TBC'}`, sub:`${L('app.team')}, Season ${s.name}. Full review`});
   const kv = [[L('gs.result'),g.result||'Not recorded'],[L('gs.venue'),g.venue||'–'],[L('gs.date'),fmtDate(g.date)||'–'],
-    ['QLD innings',[g.scores.q1,g.scores.q2].filter(Boolean).join(' & ')||'–'],[`${o} innings`,[g.scores.o1,g.scores.o2].filter(Boolean).join(' & ')||'–']];
+    ['QLD innings',scoresLine(g).q||'–'],[`${o} innings`,scoresLine(g).o||'–']];
   if(url) kv.push([L('gs.scorecard'), {link:url}]);
   if(url) b.push({t:'button', text:'View full scorecard', href:url});
   b.push({t:'kv', rows:kv});

@@ -462,7 +462,27 @@ function newGame(round){
     bowlingSummary:'', bowlMetrics:{}, bowlers:[], bowlMilestones:[],
     wtp:blankWtp()};
 }
-function newBatter(){ return {id:uid(), name:'', i1r:'', i1b:'', i1no:false, i2r:'', i2b:'', i2no:false, review:''}; }
+const BAT_TEMPLATE = 'Dismissals\n1st innings - \n2nd innings - \n\n';
+function newBatter(){ return {id:uid(), name:'', i1r:'', i1b:'', i1no:false, i2r:'', i2b:'', i2no:false, review:BAT_TEMPLATE}; }
+/* Review text without any unfilled template lines, so an untouched template never counts as a review or shows in exports. */
+function cleanReview(t){
+  const lines = (t||'').split('\n').filter(l=>!/^\s*(1st|2nd) innings\s*-\s*$/i.test(l));
+  const out = [];
+  lines.forEach((l,i)=>{
+    if(/^\s*Dismissals\s*$/i.test(l)){
+      const nxt = lines.slice(i+1).find(x=>x.trim());
+      if(!nxt || !/^\s*(1st|2nd) innings\s*-/i.test(nxt)) return;
+    }
+    out.push(l);
+  });
+  return out.join('\n').trim();
+}
+/* Just the written review, without the dismissals lines (used for season summary drafts). */
+function reviewBody(t){ return cleanReview(t).split('\n').filter(l=>!/^\s*Dismissals\s*$/i.test(l) && !/^\s*(1st|2nd) innings\s*-/i.test(l)).join('\n').trim(); }
+function addDismissalTemplate(id){
+  const g = G(), b = g.batters.find(x=>x.id===id);
+  b.review = BAT_TEMPLATE + (b.review||'').replace(/^\s+/,''); touchGame(g); render();
+}
 function newBowler(){ return {id:uid(), name:'', i1o:'', i1m:'', i1r:'', i1w:'', i2o:'', i2m:'', i2r:'', i2w:'', review:''}; }
 function newPartnership(){ return {id:uid(), runs:'', wicket:'', batters:'', innings:'1'}; }
 function newMilestone(type){ return {id:uid(), player:'', type:type||'', detail:'', innings:'1'}; }
@@ -726,7 +746,7 @@ function battingSeason(s){
     p.entries.push({game:g, item:b});
   }));
   return [...map.values()].map(p=>({...p, avg: p.inns-p.no>0 ? p.runs/(p.inns-p.no) : null, sr: p.balls ? p.runs/p.balls*100 : null,
-    hsText: p.hs<0 ? '–' : p.hs+(p.hsNo?'*':''), reviews: p.entries.filter(e=>(e.item.review||'').trim()).length}))
+    hsText: p.hs<0 ? '–' : p.hs+(p.hsNo?'*':''), reviews: p.entries.filter(e=>cleanReview(e.item.review)).length}))
     .sort((a,b)=>b.runs-a.runs || a.name.localeCompare(b.name));
 }
 function bowlingSeason(s){
@@ -744,7 +764,7 @@ function bowlingSeason(s){
     p.entries.push({game:g, item:b});
   }));
   return [...map.values()].map(p=>({...p, overs:ballsToOvers(p.balls), avg: p.wkts ? p.runs/p.wkts : null, econ: p.balls ? p.runs/(p.balls/6) : null,
-    bestText: p.best ? `${p.best.w}/${p.best.r}` : '–', reviews: p.entries.filter(e=>(e.item.review||'').trim()).length}))
+    bestText: p.best ? `${p.best.w}/${p.best.r}` : '–', reviews: p.entries.filter(e=>cleanReview(e.item.review)).length}))
     .sort((a,b)=>b.wkts-a.wkts || (a.avg??999)-(b.avg??999) || a.name.localeCompare(b.name));
 }
 function partnershipBuckets(games){
@@ -954,7 +974,7 @@ function addItem(list){
 function removeItem(list, id){
   const g = G(); const it = g[list].find(x=>x.id===id);
   const label = (list==='batters'||list==='bowlers') ? (it.name||'this player') : 'this row';
-  if((it.review||it.name||it.runs||it.player||it.detail) && !confirm(`Remove ${label} from this match?`)) return;
+  if((cleanReview(it.review)||it.name||it.runs||it.player||it.detail) && !confirm(`Remove ${label} from this match?`)) return;
   g[list] = g[list].filter(x=>x.id!==id); openPlayers.delete(id); touchGame(g); render();
 }
 function togglePlayer(id){
@@ -1020,7 +1040,7 @@ function draftPlayerSummary(disc, key){
   }else{
     head = `${p.name} bowled ${p.overs} overs, taking ${plural(p.wkts,'wicket')}${p.avg!=null?` at ${f2(p.avg)}`:''} with an economy of ${f2(p.econ)}. Best figures ${p.bestText}, ${plural(p.maidens,'maiden')}.`;
   }
-  const lines = p.entries.filter(e=>(e.item.review||'').trim()).map(e=>`${gameTitle(e.game)}: ${firstSentence(e.item.review)}`);
+  const lines = p.entries.filter(e=>cleanReview(e.item.review)).map(e=>`${gameTitle(e.game)}: ${firstSentence(reviewBody(e.item.review)||cleanReview(e.item.review))}`);
   const draft = `${head}\n\nAcross the season:\n${lines.length?lines.join('\n'):'No match reviews recorded yet.'}\n\nStrengths:\n\nWork-ons:\n`;
   setNote(key, disc, draft); render(); toast('Draft added');
 }
@@ -1129,7 +1149,7 @@ function renderDashboard(){
   </div>` : ''}`;
 }
 function matchCard(g){
-  const nb = g.batters.filter(b=>(b.review||'').trim()).length, nw = g.bowlers.filter(b=>(b.review||'').trim()).length;
+  const nb = g.batters.filter(b=>cleanReview(b.review)).length, nw = g.bowlers.filter(b=>cleanReview(b.review)).length;
   const w = gameWtpAvg(g), sc = scoresLine(g);
   const meta = [g.venue, fmtDate(g.date)].filter(Boolean).join(', ');
   return `<button class="match-card ${g.result?'res-'+g.result.toLowerCase():''}" onclick="openMatch('${g.id}')">
@@ -1240,6 +1260,7 @@ function playerList(g, list){
 }
 function playerCard(p, list){
   const bat = list==='batters', open = openPlayers.has(p.id);
+  if(bat && !(p.review||'').trim()) p.review = BAT_TEMPLATE;   // empty batter reviews start with the template
   const fields = bat
     ? [1,2].map(n=>`<div class="inn-block"><div class="inn-label">${n===1?'1st':'2nd'} innings</div>
         <div class="inn-fields bat">
@@ -1267,7 +1288,10 @@ function playerCard(p, list){
       </div>
       <div class="pc-fig" data-live="${bat?'batFig':'bowlFig'}" data-arg="${p.id}">${esc(bat?batFig(p):bowlFig(p))}</div>
       <div class="inn-grid">${fields}</div>
-      <label class="field-label">${LE((bat?'bat':'bowl')+'.review')}</label>
+      <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:10px;">
+        <label class="field-label">${LE((bat?'bat':'bowl')+'.review')}</label>
+        ${bat && !/dismissals/i.test(p.review||'') ? `<button class="tool-btn" style="margin-bottom:6px;" onclick="addDismissalTemplate('${p.id}')">Add dismissals lines</button>` : ''}
+      </div>
       <textarea class="tall" oninput="setItem('${list}','${p.id}','review',this.value)">${esc(p.review)}</textarea>
       <div class="pc-season" data-live="${bat?'batSeason':'bowlSeason'}" data-arg="${p.id}">${LIVE[bat?'batSeason':'bowlSeason'](p.id)}</div>
     </div>
@@ -1553,7 +1577,7 @@ function playerDetail(disc, key){
       <div class="ri-head"><div class="ri-title">${esc(gameTitle(e.game))}</div>
         <div style="display:flex;gap:14px;align-items:baseline;"><span class="ri-fig">${esc(disc==='bat'?batFig(e.item):bowlFig(e.item))}</span>
         <button class="link-btn" onclick="openMatch('${e.game.id}','${disc==='bat'?'batting':'bowling'}')">Edit</button></div></div>
-      <div class="ri-text ${(e.item.review||'').trim()?'':'empty'}">${esc((e.item.review||'').trim()||'No review written.')}</div>
+      <div class="ri-text ${cleanReview(e.item.review)?'':'empty'}">${esc(cleanReview(e.item.review)||'No review written.')}</div>
     </div>`).join('')}
   </div>`;
 }
@@ -1652,7 +1676,7 @@ function matchReportBlocks(g, s, mode){
   b.push({t:'h', text:L('tab.batting')});
   b.push({t:'sub', text:L('bat.summary')}, {t:'p', text:g.battingSummary});
   const bats = g.batters.filter(x=>(x.name||'').trim());
-  if(bats.length){ b.push({t:'sub', text:L('bat.players')}); bats.forEach(x=>b.push({t:'h3', text:x.name, meta:batFig(x)}, {t:'p', text:x.review})); }
+  if(bats.length){ b.push({t:'sub', text:L('bat.players')}); bats.forEach(x=>b.push({t:'h3', text:x.name, meta:batFig(x)}, {t:'p', text:cleanReview(x.review)})); }
   const parts = g.partnerships.filter(p=>has(p.runs));
   if(parts.length) b.push({t:'sub', text:L('bat.partnerships')}, {t:'table', head:['Runs','Wicket','Batters','Innings'], rows:parts.map(p=>[p.runs, p.wicket||'–', p.batters||'–', p.innings==='2'?'2nd inns':'1st inns'])});
   if(g.batMilestones.length) b.push({t:'sub', text:L('bat.milestones')}, msTableBlock(g.batMilestones));
@@ -1665,7 +1689,7 @@ function matchReportBlocks(g, s, mode){
   b.push({t:'kv', rows:mrows});
   s.bowlMetrics.forEach(m=>{ const e=g.bowlMetrics[m.id]; if(e && (e.notes||'').trim()) b.push({t:'small', text:`${m.label}: ${e.notes.trim()}`}); });
   const bowls = g.bowlers.filter(x=>(x.name||'').trim());
-  if(bowls.length){ b.push({t:'sub', text:L('bowl.players')}); bowls.forEach(x=>b.push({t:'h3', text:x.name, meta:bowlFig(x)}, {t:'p', text:x.review})); }
+  if(bowls.length){ b.push({t:'sub', text:L('bowl.players')}); bowls.forEach(x=>b.push({t:'h3', text:x.name, meta:bowlFig(x)}, {t:'p', text:cleanReview(x.review)})); }
   if(g.bowlMilestones.length) b.push({t:'sub', text:L('bowl.milestones')}, msTableBlock(g.bowlMilestones));
 
   b.push({t:'h', text:L('tab.wtp')});
@@ -1830,7 +1854,7 @@ function detailSections(g, s){
   // Batting
   const bb = [];
   const bats = g.batters.filter(x=>(x.name||'').trim());
-  bats.forEach(x=>bb.push({t:'h3', text:x.name, meta:batFig(x)}, {t:'p', text:x.review}));
+  bats.forEach(x=>bb.push({t:'h3', text:x.name, meta:batFig(x)}, {t:'p', text:cleanReview(x.review)}));
   const parts = g.partnerships.filter(p=>has(p.runs));
   if(parts.length) bb.push({t:'sub', text:L('bat.partnerships')}, {t:'table', head:['Runs','Wicket','Batters','Innings'], rows:parts.map(p=>[p.runs, p.wicket||'–', p.batters||'–', p.innings==='2'?'2nd inns':'1st inns'])});
   if(g.batMilestones.length) bb.push({t:'sub', text:L('bat.milestones')}, msTableBlock(g.batMilestones));
@@ -1839,7 +1863,7 @@ function detailSections(g, s){
   const wb = [];
   s.bowlMetrics.forEach(m=>{ const e=g.bowlMetrics[m.id]; if(e && (e.notes||'').trim()) wb.push({t:'h3', text:m.label, meta:String(metricValue(g,m))}, {t:'p', text:e.notes}); });
   const bowls = g.bowlers.filter(x=>(x.name||'').trim());
-  bowls.forEach(x=>wb.push({t:'h3', text:x.name, meta:bowlFig(x)}, {t:'p', text:x.review}));
+  bowls.forEach(x=>wb.push({t:'h3', text:x.name, meta:bowlFig(x)}, {t:'p', text:cleanReview(x.review)}));
   if(g.bowlMilestones.length) wb.push({t:'sub', text:L('bowl.milestones')}, msTableBlock(g.bowlMilestones));
   secs.push({id:'bowling', title:'Bowling reviews', count:bowls.length?plural(bowls.length,'bowler'):'', blocks:wb});
   // Way to Play

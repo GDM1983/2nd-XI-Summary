@@ -200,7 +200,7 @@
 
   /* ---------- Row tables (partnerships, milestones) ---------- */
   .grid-row{display:grid;gap:8px;align-items:center;margin-bottom:8px;}
-  .part-row{grid-template-columns:90px 120px 1fr 110px 34px;}
+  .part-row{grid-template-columns:90px 130px 1fr 34px;}
   .ms-row{grid-template-columns:1fr 150px 120px 120px 34px;}
   .row-head{font-size:11px;font-weight:600;color:var(--ink-soft);margin-bottom:0;}
   @media (max-width:700px){.part-row,.ms-row{grid-template-columns:1fr 1fr;} .head-row{display:none;}}
@@ -821,7 +821,7 @@ function toast(msg){
 }
 
 /* ============================= NAVIGATION ============================= */
-function resetView(name){ return {name, sessOpen:false, gameId:null, tab:'summary', stab:view.stab||'trends', player:null, metric:null, addingMetric:false}; }
+function resetView(name){ return {name, sessOpen:false, partOpen:null, gameId:null, tab:'summary', stab:view.stab||'trends', player:null, metric:null, addingMetric:false}; }
 function go(name){ view = resetView(name); render(); window.scrollTo(0,0); }
 /* ---- Session breakdown ---- */
 /* Works out which innings each slot belongs to, in the order play happened
@@ -1054,6 +1054,7 @@ const LIVE = {
   batSeason: id=>{ const b=G().batters.find(x=>x.id===id); if(!b||!pkey(b.name)) return ''; const p=battingSeason(S()).find(x=>x.key===pkey(b.name)); return p?`Season to date: <b>${p.runs} runs</b> from ${plural(p.inns,'innings','innings')}, average ${f2(p.avg)}, ${p.fifties} × 50+, ${p.hundreds} × 100+`:''; },
   bowlSeason: id=>{ const b=G().bowlers.find(x=>x.id===id); if(!b||!pkey(b.name)) return ''; const p=bowlingSeason(S()).find(x=>x.key===pkey(b.name)); return p?`Season to date: <b>${plural(p.wkts,'wicket')}</b> from ${p.overs} overs, average ${f2(p.avg)}, economy ${f2(p.econ)}`:''; },
   partSummary: ()=>partSummaryInner(),
+  partGroup: inn=>esc(partGroupSummary(inn)),
   msSummary: kind=>msSummaryInner(kind),
   sessSummary: ()=>sessSummaryInner(),
   dayTotal: d=>dayTotalInner(d),
@@ -1340,18 +1341,57 @@ function tabBatting(g){
   ${playerList(g, 'batters')}
   <div class="panel" style="margin-top:22px;">
     <div class="panel-head"><div class="panel-title">${LE('bat.partnerships')}</div></div>
-    ${g.partnerships.length ? `<div class="grid-row part-row head-row"><div class="row-head">Runs</div><div class="row-head">Wicket</div><div class="row-head">Batters</div><div class="row-head">Innings</div><div></div></div>` : ''}
-    ${g.partnerships.map(p=>`<div class="grid-row part-row">
-      <input type="number" min="0" placeholder="Runs" value="${esc(p.runs)}" oninput="setItem('partnerships','${p.id}','runs',this.value)">
-      <select onchange="setItem('partnerships','${p.id}','wicket',this.value)"><option value="">Wicket</option>${['1st','2nd','3rd','4th','5th','6th','7th','8th','9th','10th'].map(w=>`<option ${p.wicket===w?'selected':''}>${w}</option>`).join('')}</select>
-      <input type="text" placeholder="Batters" value="${esc(p.batters)}" oninput="setItem('partnerships','${p.id}','batters',this.value)">
-      <select onchange="setItem('partnerships','${p.id}','innings',this.value)"><option value="1" ${p.innings==='1'?'selected':''}>1st inns</option><option value="2" ${p.innings==='2'?'selected':''}>2nd inns</option></select>
-      <button class="icon-btn danger" onclick="removeItem('partnerships','${p.id}')" aria-label="Remove partnership">×</button>
-    </div>`).join('')}
-    <button class="add-btn" onclick="addItem('partnerships')">+ Add partnership</button>
+    ${['1','2'].map(inn=>partGroup(g, inn)).join('')}
     <div data-live="partSummary" style="margin-top:14px;">${partSummaryInner()}</div>
   </div>
   ${milestonePanel(g, 'bat')}`;
+}
+const WICKETS = ['1st','2nd','3rd','4th','5th','6th','7th','8th','9th','10th'];
+function partOpen(g, inn){
+  if(view.partOpen && view.partOpen[inn]!==undefined) return view.partOpen[inn];
+  const has2 = g.partnerships.some(p=>p.innings==='2');
+  return inn==='2' ? has2 : !has2;   // once 2nd innings stands exist, the 1st innings group starts collapsed
+}
+function togglePartGroup(inn){
+  const g = G(); view.partOpen = view.partOpen || {};
+  view.partOpen[inn] = !partOpen(g, inn);
+  const el = document.getElementById('pg-'+inn);
+  if(el){ el.classList.toggle('open', view.partOpen[inn]); el.querySelector('.pc-toggle').setAttribute('aria-expanded', view.partOpen[inn]); }
+}
+function partGroupSummary(inn){
+  const list = G().partnerships.filter(p=>(p.innings||'1')===inn);
+  if(!list.length) return 'None yet';
+  const best = list.reduce((a,p)=> num(p.runs)>num(a.runs) ? p : a, list[0]);
+  return `${plural(list.length,'partnership')}${has(best.runs)?`, best ${num(best.runs)}${best.wicket?` for the ${best.wicket}`:''}`:''}`;
+}
+function addPartnership(inn){
+  const g = G(), p = newPartnership(); p.innings = inn;
+  const used = g.partnerships.filter(x=>(x.innings||'1')===inn).map(x=>WICKETS.indexOf(x.wicket)).filter(i=>i>=0);
+  const next = used.length ? Math.max(...used)+1 : 0;
+  if(next < WICKETS.length) p.wicket = WICKETS[next];
+  g.partnerships.push(p);
+  view.partOpen = view.partOpen || {}; view.partOpen[inn] = true;
+  touchGame(g); render();
+  setTimeout(()=>{ const el=document.querySelector(`[data-part="${p.id}"]`); if(el) el.focus(); }, 30);
+}
+function partGroup(g, inn){
+  const rows = g.partnerships.filter(p=>(p.innings||'1')===inn);
+  const open = partOpen(g, inn);
+  return `<div class="player-card ${open?'open':''}" id="pg-${inn}">
+    <button class="pc-toggle" aria-expanded="${open}" onclick="togglePartGroup('${inn}')">
+      <span><span class="pc-name">${inn==='1'?'1st':'2nd'} innings</span><span class="muted" style="margin-left:10px;font-size:12.5px;" data-live="partGroup" data-arg="${inn}">${esc(partGroupSummary(inn))}</span></span>${chevron()}
+    </button>
+    <div class="pc-body" style="padding-top:12px;">
+      ${rows.length ? `<div class="grid-row part-row head-row"><div class="row-head">Runs</div><div class="row-head">Wicket</div><div class="row-head">Batters</div><div></div></div>` : ''}
+      ${rows.map(p=>`<div class="grid-row part-row">
+        <input type="number" min="0" placeholder="Runs" data-part="${p.id}" value="${esc(p.runs)}" oninput="setItem('partnerships','${p.id}','runs',this.value)">
+        <select onchange="setItem('partnerships','${p.id}','wicket',this.value)"><option value="">Wicket</option>${WICKETS.map(w=>`<option ${p.wicket===w?'selected':''}>${w}</option>`).join('')}</select>
+        <input type="text" placeholder="Batters" value="${esc(p.batters)}" oninput="setItem('partnerships','${p.id}','batters',this.value)">
+        <button class="icon-btn danger" onclick="removeItem('partnerships','${p.id}')" aria-label="Remove partnership">×</button>
+      </div>`).join('')}
+      <button class="add-btn" onclick="addPartnership('${inn}')">+ Add ${inn==='1'?'1st':'2nd'} innings partnership</button>
+    </div>
+  </div>`;
 }
 function partSummaryInner(){
   const g = G(), s = S(), m = partnershipBuckets([g]), t = partnershipBuckets(s.games);

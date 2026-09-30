@@ -218,6 +218,7 @@
   .sess-sum{font-size:13px;font-weight:600;color:var(--ink-soft);font-variant-numeric:tabular-nums;white-space:nowrap;}
   .sess-sum b{color:var(--turf);}
   .sess-panel.open .chev{transform:rotate(180deg);}
+  .sess-panel.open .sess-sum{display:none;}   /* totals are in the grid when it's open */
   .sess-body{display:none;padding:0 20px 20px;border-top:1px solid var(--line-soft);}
   .sess-panel.open .sess-body{display:block;}
   .sess-scroll{overflow-x:auto;margin-top:16px;}
@@ -234,12 +235,13 @@
   .bb button.on-bowl{background:var(--clay);color:var(--bone);}
   .bb button.inn{border-left:1px solid var(--line);color:var(--turf);font-size:10.5px;padding:6px 5px;min-width:30px;}
   .bb button.inn.manual{background:rgba(224,162,62,0.22);color:var(--turf-deep);}
-  .sess-total .stumps{border-top:1px solid rgba(110,27,60,0.15);margin-top:6px;padding-top:5px;font-size:11.5px;color:var(--ink-soft);line-height:1.45;}
-  .sess-total .stumps em{font-style:normal;font-weight:700;color:var(--ink);}
-  .sess-total{background:rgba(110,27,60,0.06);border:1px solid rgba(110,27,60,0.15);border-radius:11px;padding:9px 10px;font-size:12.5px;line-height:1.6;font-variant-numeric:tabular-nums;}
-  .sess-total b{font-family:var(--serif);font-size:14px;color:var(--turf);}
-  .sess-total > div:not(.stumps){display:grid;grid-template-columns:42px 1fr;}
-  .sess-total span{color:var(--ink-soft);}
+  .sess-total{background:rgba(110,27,60,0.06);border:1px solid rgba(110,27,60,0.15);border-radius:11px;padding:10px 12px;font-variant-numeric:tabular-nums;}
+  .it-grid{display:grid;grid-template-columns:40px 1fr 1fr;row-gap:4px;align-items:baseline;}
+  .it-h{font-size:11px;font-weight:700;color:var(--ink-soft);}
+  .it-team{font-size:12.5px;color:var(--ink-soft);}
+  .it-v{font-family:var(--serif);font-size:17px;font-weight:650;color:var(--turf);}
+  .it-day{border-top:1px solid rgba(110,27,60,0.15);margin-top:8px;padding-top:6px;font-size:11.5px;color:var(--ink-soft);}
+  .it-empty{color:var(--ink-soft);text-align:center;padding:14px 0;}
   .sess-legend{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:11.5px;color:var(--ink-soft);margin-top:12px;}
   .sess-legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px;}
   .stat-strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px;}
@@ -887,13 +889,15 @@ function sessSummaryInner(){
   return `QLD <b>${esc(innText(t,'q'))}</b>&nbsp;&nbsp; ${esc(oppShort(g))} <b>${esc(innText(t,'o'))}</b>`;
 }
 function dayTotalInner(d){
-  const g = G(), t = sessTotals(g, dd=>dd===+d);
-  const run = sessTotals(g, dd=>dd<=+d);
-  const any = t.q.n || t.o.n;
-  // Main figure: where each innings stands at the end of the day. Smaller line: what was scored that day.
-  const main = k=> any ? esc(innText(run,k)).replace(' &amp; ', '<br>&amp; ') : '–';
-  return `<div><span>QLD</span><b>${main('q')}</b></div><div><span>${esc(oppShort(g))}</span><b>${main('o')}</b></div>
-    ${any ? `<div class="stumps"><em>Day's play</em><br>QLD ${esc(innText(t,'q'))}, ${esc(oppShort(g))} ${esc(innText(t,'o'))}</div>` : ''}`;
+  const g = G(), day = sessTotals(g, dd=>dd===+d), run = sessTotals(g, dd=>dd<=+d);
+  if(!day.q.n && !day.o.n) return '<div class="it-empty">–</div>';
+  const v = x=> x.n ? `${x.w}/${x.r}` : '–';
+  return `<div class="it-grid">
+      <div></div><div class="it-h">1st inns</div><div class="it-h">2nd inns</div>
+      <div class="it-team">QLD</div><div class="it-v">${v(run.q1)}</div><div class="it-v">${v(run.q2)}</div>
+      <div class="it-team">${esc(oppShort(g))}</div><div class="it-v">${v(run.o1)}</div><div class="it-v">${v(run.o2)}</div>
+    </div>
+    <div class="it-day">Day ${d}: Bat ${esc(fmtWR(day.q))}, Bowl ${esc(fmtWR(day.o))}</div>`;
 }
 function sessionPanel(g){
   const open = !!view.sessOpen;
@@ -913,9 +917,8 @@ function sessionPanel(g){
       <div class="sess-scroll"><div class="sess-grid">
         <div></div>${DAYS.map(d=>`<div class="sess-dayhead">Day ${d}</div>`).join('')}
         ${SESSIONS.map(n=>`<div class="sess-label">Session ${n}</div>${DAYS.map(d=>`<div class="sess-cell">${slot(`d${d}s${n}`,0)}${slot(`d${d}s${n}`,1)}</div>`).join('')}`).join('')}
-        <div class="sess-label">Close of play</div>${DAYS.map(d=>`<div class="sess-total" data-live="dayTotal" data-arg="${d}">${dayTotalInner(d)}</div>`).join('')}
+        <div class="sess-label">Innings totals</div>${DAYS.map(d=>`<div class="sess-total" data-live="dayTotal" data-arg="${d}">${dayTotalInner(d)}</div>`).join('')}
       </div></div>
-      <div class="sess-legend"><span><i style="background:var(--turf)"></i>Bat: QLD runs, wickets lost, overs</span><span><i style="background:var(--clay)"></i>Bowl: runs conceded, wickets taken, overs</span><span>1st / 2nd shows the innings, worked out automatically. Tap it to change.</span></div>
     </div>
   </div>`;
 }
@@ -1230,10 +1233,10 @@ function tabSummary(g){
   <div class="panel">
     <div class="panel-head"><div class="panel-title">${LE('gs.scores')}</div></div>
     <div class="field-row four">
-      <div><label class="field-label">QLD 1st innings</label><input type="text" placeholder="${esc(scoreHint(g,'q1')||'e.g. 7/312 dec')}" value="${esc(g.scores.q1)}" oninput="setG('scores.q1',this.value)"></div>
-      <div><label class="field-label">${esc(o)} 1st innings</label><input type="text" placeholder="${esc(scoreHint(g,'o1'))}" value="${esc(g.scores.o1)}" oninput="setG('scores.o1',this.value)"></div>
-      <div><label class="field-label">QLD 2nd innings</label><input type="text" placeholder="${esc(scoreHint(g,'q2'))}" value="${esc(g.scores.q2)}" oninput="setG('scores.q2',this.value)"></div>
-      <div><label class="field-label">${esc(o)} 2nd innings</label><input type="text" placeholder="${esc(scoreHint(g,'o2'))}" value="${esc(g.scores.o2)}" oninput="setG('scores.o2',this.value)"></div>
+      <div><label class="field-label">QLD 1st innings</label><input type="text" value="${esc(g.scores.q1)}" oninput="setG('scores.q1',this.value)"></div>
+      <div><label class="field-label">${esc(o)} 1st innings</label><input type="text" value="${esc(g.scores.o1)}" oninput="setG('scores.o1',this.value)"></div>
+      <div><label class="field-label">QLD 2nd innings</label><input type="text" value="${esc(g.scores.q2)}" oninput="setG('scores.q2',this.value)"></div>
+      <div><label class="field-label">${esc(o)} 2nd innings</label><input type="text" value="${esc(g.scores.o2)}" oninput="setG('scores.o2',this.value)"></div>
     </div>
   </div>
 
@@ -1312,7 +1315,7 @@ function milestonePanel(g, kind){
     ${rows.map(m=>`<div class="grid-row ms-row">
       <input type="text" list="dl-players" placeholder="Player" value="${esc(m.player)}" oninput="setItem('${list}','${m.id}','player',this.value)">
       <select onchange="setItem('${list}','${m.id}','type',this.value);live()">${types.map(t=>`<option ${m.type===t?'selected':''}>${esc(t)}</option>`).join('')}${m.type&&!types.includes(m.type)?`<option selected>${esc(m.type)}</option>`:''}</select>
-      <input type="text" placeholder="${kind==='bat'?'e.g. 112*':'e.g. 5/42'}" value="${esc(m.detail)}" oninput="setItem('${list}','${m.id}','detail',this.value)">
+      <input type="text" value="${esc(m.detail)}" oninput="setItem('${list}','${m.id}','detail',this.value)">
       <select onchange="setItem('${list}','${m.id}','innings',this.value)">${INNINGS_OPTS.map(([v,l])=>`<option value="${v}" ${m.innings===v?'selected':''}>${l}</option>`).join('')}</select>
       <button class="icon-btn danger" onclick="removeItem('${list}','${m.id}')" aria-label="Remove milestone">×</button>
     </div>`).join('')}
@@ -1320,7 +1323,7 @@ function milestonePanel(g, kind){
     <div class="type-row">
       <span class="mini-label">Milestone options</span>
       ${types.map(t=>`<span class="type-chip">${esc(t)}<button data-t="${esc(t)}" onclick="removeMilestoneType('${kind}',this.dataset.t)" aria-label="Remove ${esc(t)}">×</button></span>`).join('')}
-      <input type="text" id="mt-${kind}" placeholder="${kind==='bat'?'e.g. 200':'e.g. 4 wickets'}" onkeydown="if(event.key==='Enter')addMilestoneType('${kind}')">
+      <input type="text" id="mt-${kind}" onkeydown="if(event.key==='Enter')addMilestoneType('${kind}')">
       <button class="tool-btn" onclick="addMilestoneType('${kind}')">Add option</button>
     </div>
     <div data-live="msSummary" data-arg="${kind}" style="margin-top:14px;">${msSummaryInner(kind)}</div>
@@ -1473,7 +1476,7 @@ function tabExport(g){
   </div>
   <div class="panel" style="display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;">
     <div><div class="panel-title">Review file for attaching</div>
-      <div class="muted" style="margin-top:4px;">Summary first, with batting, bowling and Way to Play detail behind Read more buttons.</div></div>
+</div>
     <div class="btn-row"><button class="ghost-btn" onclick="previewReviewFile()">Preview</button><button class="primary-btn" onclick="downloadReviewFile()">Download review file</button></div>
   </div>
   <div class="report-paper" data-live="exportPreview">${LIVE.exportPreview()}</div>`;
@@ -1693,8 +1696,9 @@ function sessionGridBlock(g){
     return lines.join('\n') || '–';
   };
   const rows = SESSIONS.map(n=>[`Session ${n}`, ...days.map(d=>cell(d,n))]);
-  rows.push(["Day's play", ...days.map(d=>{ const t=sessTotals(g, dd=>dd===d); return `QLD ${innText(t,'q')}\n${o} ${innText(t,'o')}`; })]);
-  rows.push(['Close of play', ...days.map(d=>{ const t=sessTotals(g, dd=>dd<=d); return `QLD ${innText(t,'q')}\n${o} ${innText(t,'o')}`; })]);
+  const v = x=> x.n ? `${x.w}/${x.r}` : '–';
+  rows.push(['Day (bat / bowl)', ...days.map(d=>{ const t=sessTotals(g, dd=>dd===d); return `Bat ${fmtWR(t.q)}\nBowl ${fmtWR(t.o)}`; })]);
+  rows.push(['Innings totals', ...days.map(d=>{ const t=sessTotals(g, dd=>dd<=d); return `1st: QLD ${v(t.q1)}, ${o} ${v(t.o1)}\n2nd: QLD ${v(t.q2)}, ${o} ${v(t.o2)}`; })]);
   return {t:'table', head:['', ...days.map(d=>`Day ${d}`)], rows, left:true, totals:1};
 }
 function matchReportBlocks(g, s, mode){

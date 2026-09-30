@@ -277,6 +277,14 @@
   .mtab-input input{width:170px;padding:7px 10px;font-size:12.5px;}
   .metric-body{background:var(--bone);border-radius:12px;padding:14px;}
   .metric-body input,.metric-body textarea{background:var(--paper);}
+  .kpi-head{font-size:12px;font-weight:700;color:var(--ink-soft);margin:18px 0 8px;}
+  .kpi-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:8px;}
+  .kpi-row{display:grid;grid-template-columns:1fr 80px 26px;gap:8px;align-items:center;background:var(--bone);border-radius:11px;padding:7px 8px 7px 14px;}
+  .kpi-label{font-size:13.5px;font-weight:600;color:var(--ink);}
+  .kpi-row input{background:var(--paper);padding:7px 8px;text-align:center;font-family:var(--serif);font-weight:650;font-size:16px;color:var(--turf);}
+  .kpi-auto{display:block;text-align:center;font-family:var(--serif);font-weight:650;font-size:16px;color:var(--turf);padding:7px 8px;border:1px dashed rgba(110,27,60,0.25);border-radius:10px;}
+  .kpi-x{background:none;border:none;color:var(--ink-soft);font-size:16px;cursor:pointer;border-radius:6px;padding:2px;}
+  .kpi-x:hover{color:var(--red);}
   .metric-foot{display:flex;align-items:center;gap:8px;margin-top:12px;justify-content:flex-end;flex-wrap:wrap;}
   .metric-foot input{width:200px;padding:6px 10px;font-size:12.5px;}
   .metric-grid{display:grid;grid-template-columns:140px 1fr;gap:12px;}
@@ -816,11 +824,16 @@ function gameBowlerSums(g){
   g.bowlers.forEach(b=>{ maidens+=num(b.i1m)+num(b.i2m); wkts+=num(b.i1w)+num(b.i2w); balls+=oversToBalls(b.i1o)+oversToBalls(b.i2o); });
   return {maidens, wkts, overs:ballsToOvers(balls)};
 }
+function kpiMaidensInner(){
+  const g = G(), e = g.bowlMetrics.maidens||{};
+  if(bowlFigsEntered(g)) return `<span class="kpi-auto" title="Added up from the bowlers' figures">${gameBowlerSums(g).maidens}</span>`;
+  return `<input type="number" min="0" aria-label="Maidens" value="${esc(e.value||'')}" oninput="setMetricField('maidens','value',this.value)">`;
+}
+function bowlFigsEntered(g){ return g.bowlers.some(b=>has(b.i1o)||has(b.i2o)||has(b.i1m)||has(b.i2m)); }
 function metricValue(g, m){
   const e = g.bowlMetrics[m.id];
-  if(e && has(e.value)) return num(e.value);
-  if(m.id==='maidens') return gameBowlerSums(g).maidens;
-  return 0;
+  if(m.id==='maidens' && bowlFigsEntered(g)) return gameBowlerSums(g).maidens;   // maidens come from the bowlers' figures
+  return e && has(e.value) ? num(e.value) : 0;
 }
 function bowlingTeamSeason(s){
   let wkts = 0;
@@ -1062,14 +1075,14 @@ function cancelAddMetric(){ view.addingMetric = false; render(); }
 function addMetric(){
   const label = (document.getElementById('new-metric').value||'').trim(); if(!label) return;
   const s = S();
-  if(s.bowlMetrics.some(m=>m.label.toLowerCase()===label.toLowerCase())){ toast('That tab already exists'); return; }
+  if(s.bowlMetrics.some(m=>m.label.toLowerCase()===label.toLowerCase())){ toast('That KPI already exists'); return; }
   const m = {id:uid(), label}; s.bowlMetrics.push(m);
   view.metric = m.id; view.addingMetric = false; touchSeason(s); render();
 }
 function renameMetric(id, label){ const s=S(); const m=s.bowlMetrics.find(x=>x.id===id); if(!m||!label.trim()) return; m.label=label.trim(); touchSeason(s); render(); }
 function removeMetric(id){
   const s = S(); const m = s.bowlMetrics.find(x=>x.id===id);
-  if(!confirm(`Remove the "${m.label}" tab from every match this season?`)) return;
+  if(!confirm(`Remove the "${m.label}" KPI from every match this season?`)) return;
   s.bowlMetrics = s.bowlMetrics.filter(x=>x.id!==id); view.metric = null; touchSeason(s); render();
 }
 function setMetricField(id, field, val){
@@ -1109,11 +1122,12 @@ const LIVE = {
   sessSummary: ()=>sessSummaryInner(),
   dayTotal: d=>dayTotalInner(d),
   innScores: ()=>innScoresInner(),
+  kpiMaidens: ()=>{ const a=document.activeElement; return (a && a.closest && a.closest('[data-live="kpiMaidens"]')) ? null : kpiMaidensInner(); },
   exportPreview: ()=>blocksToHTML(matchReportBlocks(G(), S())),
   seasonPreview: ()=>blocksToHTML(seasonReportBlocks(S())),
 };
 function live(){
-  document.querySelectorAll('[data-live]').forEach(el=>{ const f=LIVE[el.dataset.live]; if(f) el.innerHTML = f(el.dataset.arg); });
+  document.querySelectorAll('[data-live]').forEach(el=>{ const f=LIVE[el.dataset.live]; if(!f) return; const h=f(el.dataset.arg); if(h!==null && h!==undefined && el.innerHTML!==h) el.innerHTML = h; });
 }
 function playerNameHtml(p, list){
   const n = p && (p.name||'').trim();
@@ -1451,33 +1465,19 @@ function partSummaryInner(){
 /* ---- Tab 3: Bowling ---- */
 function tabBowling(g){
   const s = S(), ms = s.bowlMetrics;
-  if(!ms.find(m=>m.id===view.metric)) view.metric = ms[0] ? ms[0].id : null;
-  const cur = ms.find(m=>m.id===view.metric);
-  const e = cur ? (g.bowlMetrics[cur.id]||{value:'',notes:''}) : null;
-  const sums = gameBowlerSums(g);
   return `
   <div class="panel">
     <div class="panel-head"><div class="panel-title">${LE('bowl.summary')}</div></div>
     <textarea class="xl" oninput="setG('bowlingSummary',this.value)">${esc(g.bowlingSummary)}</textarea>
-    <div class="mtabs" role="tablist">
-      ${ms.map(m=>`<button class="mtab ${m.id===view.metric?'on':''}" role="tab" aria-selected="${m.id===view.metric}" onclick="setMetric('${m.id}')">${esc(m.label)}</button>`).join('')}
-      ${view.addingMetric
-        ? `<span class="mtab-input"><input type="text" id="new-metric" placeholder="Tab name" onkeydown="if(event.key==='Enter')addMetric();if(event.key==='Escape')cancelAddMetric()"><button class="tool-btn" onclick="addMetric()">Add</button><button class="tool-btn" onclick="cancelAddMetric()">Cancel</button></span>`
-        : `<button class="mtab add" onclick="startAddMetric()">+ Add</button>`}
+    <div class="kpi-head">KPIs</div>
+    <div class="kpi-list">
+      ${ms.map(m=>{ const e = g.bowlMetrics[m.id]||{}; return `<div class="kpi-row">
+        <span class="kpi-label">${esc(m.label)}</span>
+        ${m.id==='maidens' ? `<span data-live="kpiMaidens">${kpiMaidensInner()}</span>` : `<input type="number" min="0" aria-label="${esc(m.label)}" value="${esc(e.value||'')}" oninput="setMetricField('${m.id}','value',this.value)">`}
+        <button class="kpi-x" onclick="removeMetric('${m.id}')" aria-label="Remove ${esc(m.label)}">×</button>
+      </div>`; }).join('')}
     </div>
-    ${cur ? `<div class="metric-body">
-      <div class="metric-grid">
-        <div><label class="field-label" style="margin-top:0">Total</label>
-          <input type="number" min="0" value="${esc(e.value)}" ${cur.id==='maidens'?`placeholder="${sums.maidens}"`:''} oninput="setMetricField('${cur.id}','value',this.value)"></div>
-        <div><label class="field-label" style="margin-top:0">Notes</label>
-          <textarea oninput="setMetricField('${cur.id}','notes',this.value)">${esc(e.notes)}</textarea></div>
-      </div>
-      <div class="metric-foot">
-        <label class="mini-label" style="margin:0">Tab name</label>
-        <input type="text" value="${esc(cur.label)}" onchange="renameMetric('${cur.id}',this.value)">
-        <button class="tool-btn danger" onclick="removeMetric('${cur.id}')">Remove tab</button>
-      </div>
-    </div>` : ''}
+    <div class="inline-add"><input type="text" id="new-metric" placeholder="New KPI" onkeydown="if(event.key==='Enter')addMetric()"><button onclick="addMetric()">Add KPI</button></div>
   </div>
   ${playerList(g, 'bowlers')}
   <div style="margin-top:22px;">${milestonePanel(g, 'bowl')}</div>`;
@@ -1771,9 +1771,8 @@ function matchReportBlocks(g, s, mode){
   b.push({t:'sub', text:L('bowl.summary')}, {t:'p', text:g.bowlingSummary});
   const sums = gameBowlerSums(g);
   const mrows = [['Wickets taken', sums.wkts]];
-  s.bowlMetrics.forEach(m=>{ const e=g.bowlMetrics[m.id]; const v=metricValue(g,m); if(v || (e&&(e.notes||'').trim())) mrows.push([m.label, v]); });
+  s.bowlMetrics.forEach(m=>{ const v=metricValue(g,m); if(v) mrows.push([m.label, v]); });
   b.push({t:'kv', rows:mrows});
-  s.bowlMetrics.forEach(m=>{ const e=g.bowlMetrics[m.id]; if(e && (e.notes||'').trim()) b.push({t:'small', text:`${m.label}: ${e.notes.trim()}`}); });
   const bowls = g.bowlers.filter(x=>(x.name||'').trim());
   if(bowls.length){ b.push({t:'sub', text:L('bowl.players')}); bowls.forEach(x=>b.push({t:'h3', text:x.name, meta:bowlFig(x)}, {t:'p', text:cleanReview(x.review)})); }
   if(g.bowlMilestones.length) b.push({t:'sub', text:L('bowl.milestones')}, msTableBlock(g.bowlMilestones));
@@ -1947,7 +1946,6 @@ function detailSections(g, s){
   secs.push({id:'batting', title:'Batting reviews', count:bats.length?plural(bats.length,'batter'):'', blocks:bb});
   // Bowling
   const wb = [];
-  s.bowlMetrics.forEach(m=>{ const e=g.bowlMetrics[m.id]; if(e && (e.notes||'').trim()) wb.push({t:'h3', text:m.label, meta:String(metricValue(g,m))}, {t:'p', text:e.notes}); });
   const bowls = g.bowlers.filter(x=>(x.name||'').trim());
   bowls.forEach(x=>wb.push({t:'h3', text:x.name, meta:bowlFig(x)}, {t:'p', text:cleanReview(x.review)}));
   if(g.bowlMilestones.length) wb.push({t:'sub', text:L('bowl.milestones')}, msTableBlock(g.bowlMilestones));

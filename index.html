@@ -2072,6 +2072,7 @@ function renderSettings(openGroup){
           <label class="field-label">Index bin id</label>
           <input type="text" id="cfg-bin" value="${esc(cfg.binId)}">
           <div class="btn-row" style="margin-top:12px;"><button class="primary-btn" onclick="saveConnection()">Save and connect</button><button class="ghost-btn" onclick="reloadCloud()">Reload from JSONBin</button></div>
+          ${binsInUseHtml()}
         </div>
 
         <div class="modal-section">
@@ -2082,6 +2083,17 @@ function renderSettings(openGroup){
       </div>
     </div>
   </div>`;
+}
+/* Lists every bin this device is using, so old ones can be safely deleted on jsonbin.io. */
+function binsInUseHtml(){
+  if(!cfg.apiKey || !cfg.binId) return '';
+  const rows = [['Index', cfg.binId]];
+  db.seasons.forEach(se=>{
+    if(se._bin) rows.push([`Season ${se.name}${se.archived?' (archived)':''}`, se._bin]);
+    (se.games||[]).forEach(g=>{ if(g._bin) rows.push([`${se.name}: ${gameTitle(g)}`, g._bin]); });
+  });
+  return `<details class="lbl-group" style="margin-top:14px;"><summary>Bins in use on this device (${rows.length})</summary>
+    <div class="lbl-rows">${rows.map(([l,id])=>`<div class="lbl-row"><span>${esc(l)}</span><span class="code">${esc(id)}</span></div>`).join('')}</div></details>`;
 }
 function setLabel(k, v, gi){
   v = (v||'').trim();

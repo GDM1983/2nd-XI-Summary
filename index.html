@@ -222,18 +222,19 @@
   .sess-body{display:none;padding:0 20px 20px;border-top:1px solid var(--line-soft);}
   .sess-panel.open .sess-body{display:block;}
   .sess-scroll{overflow-x:auto;margin-top:16px;}
-  .sess-grid{display:grid;grid-template-columns:72px repeat(4,minmax(246px,1fr));gap:8px;min-width:1080px;}
+  .sess-grid{display:grid;grid-template-columns:72px repeat(4,minmax(246px,1fr));gap:12px 12px;min-width:1090px;padding:9px 12px 0 0;}
   .sess-dayhead{font-family:var(--serif);font-weight:650;font-size:15px;color:var(--turf);padding:0 4px 2px;}
   .sess-label{font-size:12px;font-weight:700;color:var(--ink-soft);align-self:center;}
-  .sess-cell{background:var(--bone);border-radius:11px;padding:8px;display:flex;flex-direction:column;gap:6px;border-top:4px solid transparent;}
-  .sess-cell[data-res="won"]{border-top-color:var(--green);background:rgba(60,139,105,0.09);}
-  .sess-cell[data-res="even"]{border-top-color:var(--amber);background:rgba(200,147,57,0.11);}
-  .sess-cell[data-res="lost"]{border-top-color:var(--red);background:rgba(181,69,61,0.08);}
-  .sr-row{display:flex;gap:4px;}
-  .sr-btn{flex:1;font-size:11px;font-weight:700;border:1px solid var(--line);background:var(--paper);color:var(--ink-soft);border-radius:7px;padding:4px 0;cursor:pointer;}
-  .sr-btn.won:hover,.sr-btn.won.on{border-color:var(--green);} .sr-btn.won.on{background:var(--green);color:#fff;}
-  .sr-btn.even:hover,.sr-btn.even.on{border-color:var(--amber);} .sr-btn.even.on{background:var(--amber);color:#fff;}
-  .sr-btn.lost:hover,.sr-btn.lost.on{border-color:var(--red);} .sr-btn.lost.on{background:var(--red);color:#fff;}
+  .sess-cell{background:var(--bone);border-radius:11px;padding:8px;display:flex;flex-direction:column;gap:6px;border:1px solid transparent;}
+  .sess-cell[data-res="won"]{border-color:rgba(60,139,105,0.35);background:rgba(60,139,105,0.09);}
+  .sess-cell[data-res="even"]{border-color:rgba(200,147,57,0.4);background:rgba(200,147,57,0.11);}
+  .sess-cell[data-res="lost"]{border-color:rgba(181,69,61,0.35);background:rgba(181,69,61,0.08);}
+  .sess-cell{position:relative;}
+  .sr-dot{position:absolute;top:-7px;right:-7px;width:20px;height:20px;border-radius:50%;border:2px solid rgba(27,31,28,0.25);background:var(--paper);cursor:pointer;padding:0;box-shadow:0 1px 3px rgba(0,0,0,0.12);z-index:1;}
+  .sr-dot:hover{border-color:var(--turf-light);}
+  .sess-cell[data-res="won"] .sr-dot{background:var(--green);border-color:var(--green);}
+  .sess-cell[data-res="even"] .sr-dot{background:var(--amber);border-color:var(--amber);}
+  .sess-cell[data-res="lost"] .sr-dot{background:var(--red);border-color:var(--red);}
   .tally-wrap{display:flex;gap:6px;flex-wrap:wrap;}
   .tally{font-size:12px;font-weight:700;padding:4px 10px;border-radius:100px;white-space:nowrap;}
   .tally.won{background:rgba(60,139,105,0.14);color:var(--green);}
@@ -977,8 +978,16 @@ function setSessResult(key, v){
   g.sessionResults[key] = g.sessionResults[key]===v ? '' : v;
   touchGame(g);
   const cell = document.getElementById('cell-'+key);
-  if(cell){ cell.dataset.res = g.sessionResults[key]||''; cell.querySelectorAll('.sr-btn').forEach(b=>b.classList.toggle('on', b.dataset.v===g.sessionResults[key])); }
+  if(cell) cell.dataset.res = g.sessionResults[key]||'';
   live();
+}
+function cycleSessResult(key){
+  const order = ['', 'won', 'even', 'lost'];
+  const cur = (G().sessionResults||{})[key] || '';
+  const next = order[(order.indexOf(cur)+1) % order.length];
+  setSessResult(key, next || cur);   // setSessResult clears when given the current value
+  const cell = document.getElementById('cell-'+key);
+  if(cell) cell.querySelector('.sr-dot').setAttribute('aria-label', 'Session result: '+((G().sessionResults||{})[key]||'not set'));
 }
 function sessResultTally(games){
   const t = {won:0, even:0, lost:0};
@@ -1009,7 +1018,7 @@ function sessionPanel(g){
       <div class="sess-scroll"><div class="sess-grid">
         <div></div>${DAYS.map(d=>`<div class="sess-dayhead">Day ${d}</div>`).join('')}
         ${SESSIONS.map(n=>`<div class="sess-label">Session ${n}</div>${DAYS.map(d=>{ const key=`d${d}s${n}`, res=(g.sessionResults||{})[key]||''; return `<div class="sess-cell" id="cell-${key}" data-res="${res}">
-          <div class="sr-row">${SR_OPTS.map(([v,l])=>`<button class="sr-btn ${v} ${res===v?'on':''}" data-v="${v}" onclick="setSessResult('${key}','${v}')">${l}</button>`).join('')}</div>
+          <button class="sr-dot" onclick="cycleSessResult('${key}')" title="Session result: tap for won, again for even, again for lost" aria-label="Session result: ${res||'not set'}"></button>
           ${slot(key,0)}${slot(key,1)}</div>`; }).join('')}`).join('')}
         <div class="sess-label">Day total</div>${DAYS.map(d=>`<div class="sess-total" data-live="dayTotal" data-arg="${d}">${dayTotalInner(d)}</div>`).join('')}
       </div></div>

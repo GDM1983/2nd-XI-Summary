@@ -225,7 +225,20 @@
   .sess-grid{display:grid;grid-template-columns:72px repeat(4,minmax(246px,1fr));gap:8px;min-width:1080px;}
   .sess-dayhead{font-family:var(--serif);font-weight:650;font-size:15px;color:var(--turf);padding:0 4px 2px;}
   .sess-label{font-size:12px;font-weight:700;color:var(--ink-soft);align-self:center;}
-  .sess-cell{background:var(--bone);border-radius:11px;padding:8px;display:flex;flex-direction:column;gap:6px;}
+  .sess-cell{background:var(--bone);border-radius:11px;padding:8px;display:flex;flex-direction:column;gap:6px;border-top:4px solid transparent;}
+  .sess-cell[data-res="won"]{border-top-color:var(--green);background:rgba(60,139,105,0.09);}
+  .sess-cell[data-res="even"]{border-top-color:var(--amber);background:rgba(200,147,57,0.11);}
+  .sess-cell[data-res="lost"]{border-top-color:var(--red);background:rgba(181,69,61,0.08);}
+  .sr-row{display:flex;gap:4px;}
+  .sr-btn{flex:1;font-size:11px;font-weight:700;border:1px solid var(--line);background:var(--paper);color:var(--ink-soft);border-radius:7px;padding:4px 0;cursor:pointer;}
+  .sr-btn.won:hover,.sr-btn.won.on{border-color:var(--green);} .sr-btn.won.on{background:var(--green);color:#fff;}
+  .sr-btn.even:hover,.sr-btn.even.on{border-color:var(--amber);} .sr-btn.even.on{background:var(--amber);color:#fff;}
+  .sr-btn.lost:hover,.sr-btn.lost.on{border-color:var(--red);} .sr-btn.lost.on{background:var(--red);color:#fff;}
+  .tally-wrap{display:flex;gap:6px;flex-wrap:wrap;}
+  .tally{font-size:12px;font-weight:700;padding:4px 10px;border-radius:100px;white-space:nowrap;}
+  .tally.won{background:rgba(60,139,105,0.14);color:var(--green);}
+  .tally.even{background:rgba(200,147,57,0.18);color:#8A6418;}
+  .tally.lost{background:rgba(181,69,61,0.13);color:var(--red);}
   .sess-slot{display:grid;grid-template-columns:auto minmax(0,1fr) minmax(0,.75fr) minmax(0,1.2fr);gap:4px;align-items:center;}
   .sess-slot input{padding:6px 3px;text-align:center;font-size:12.5px;background:var(--paper);font-variant-numeric:tabular-nums;min-width:0;}
   .bb{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--paper);}
@@ -483,7 +496,7 @@ const DAYS = [1,2,3,4], SESSIONS = [1,2,3];
 function blankSlot(){ return {role:'', runs:'', wkts:'', overs:''}; }
 function blankSessions(){ const o={}; DAYS.forEach(d=>SESSIONS.forEach(n=>{ o[`d${d}s${n}`]=[blankSlot(),blankSlot()]; })); return o; }
 function newGame(round){
-  return {id:uid(), round:String(round||''), opponent:'', venue:'', date:'', result:'', scorecardUrl:'', sessions:blankSessions(), dec:{},
+  return {id:uid(), round:String(round||''), opponent:'', venue:'', date:'', result:'', scorecardUrl:'', sessions:blankSessions(), sessionResults:{}, dec:{},
     scores:{q1:'',o1:'',q2:'',o2:''}, summary:'', positives:'', learnings:'',
     battingSummary:'', batters:[], partnerships:[], batMilestones:[],
     bowlingSummary:'', bowlMetrics:{}, bowlers:[], bowlMilestones:[],
@@ -957,6 +970,27 @@ function dayTotalInner(d){
   if(!lines.length) return '<div class="it-empty">–</div>';
   return lines.map(l=>`<div class="dt-line"><span class="it-team">${esc(l.team)}</span><span class="it-v">${esc(l.score)}</span><span class="dt-ov">${l.overs?`(${l.overs})`:''}</span><span class="dt-inn">${l.inn}</span></div>`).join('');
 }
+/* ---- Session results: won / even / lost ---- */
+const SR_OPTS = [['won','Won'],['even','Even'],['lost','Lost']];
+function setSessResult(key, v){
+  const g = G(); g.sessionResults = g.sessionResults||{};
+  g.sessionResults[key] = g.sessionResults[key]===v ? '' : v;
+  touchGame(g);
+  const cell = document.getElementById('cell-'+key);
+  if(cell){ cell.dataset.res = g.sessionResults[key]||''; cell.querySelectorAll('.sr-btn').forEach(b=>b.classList.toggle('on', b.dataset.v===g.sessionResults[key])); }
+  live();
+}
+function sessResultTally(games){
+  const t = {won:0, even:0, lost:0};
+  games.forEach(g=>Object.values(g.sessionResults||{}).forEach(v=>{ if(t[v]!==undefined) t[v]++; }));
+  return t;
+}
+function tallyInner(){
+  const t = sessResultTally([G()]);
+  if(!t.won && !t.even && !t.lost) return '';
+  return `<span class="tally won">Won ${t.won}</span><span class="tally even">Even ${t.even}</span><span class="tally lost">Lost ${t.lost}</span>`;
+}
+function tallyText(t){ return `Won ${t.won}, even ${t.even}, lost ${t.lost}`; }
 function sessionPanel(g){
   const open = !!view.sessOpen;
   const innMap = slotInnings(g);
@@ -969,12 +1003,14 @@ function sessionPanel(g){
   return `<div class="panel sess-panel ${open?'open':''}" id="sess-panel">
     <button class="sess-toggle" aria-expanded="${open}" onclick="toggleSessions()">
       <span class="panel-title">${LE('gs.sessions')}</span>
-${chevron()}
+      <span class="tally-wrap" data-live="sessTally">${tallyInner()}</span>${chevron()}
     </button>
     <div class="sess-body">
       <div class="sess-scroll"><div class="sess-grid">
         <div></div>${DAYS.map(d=>`<div class="sess-dayhead">Day ${d}</div>`).join('')}
-        ${SESSIONS.map(n=>`<div class="sess-label">Session ${n}</div>${DAYS.map(d=>`<div class="sess-cell">${slot(`d${d}s${n}`,0)}${slot(`d${d}s${n}`,1)}</div>`).join('')}`).join('')}
+        ${SESSIONS.map(n=>`<div class="sess-label">Session ${n}</div>${DAYS.map(d=>{ const key=`d${d}s${n}`, res=(g.sessionResults||{})[key]||''; return `<div class="sess-cell" id="cell-${key}" data-res="${res}">
+          <div class="sr-row">${SR_OPTS.map(([v,l])=>`<button class="sr-btn ${v} ${res===v?'on':''}" data-v="${v}" onclick="setSessResult('${key}','${v}')">${l}</button>`).join('')}</div>
+          ${slot(key,0)}${slot(key,1)}</div>`; }).join('')}`).join('')}
         <div class="sess-label">Day total</div>${DAYS.map(d=>`<div class="sess-total" data-live="dayTotal" data-arg="${d}">${dayTotalInner(d)}</div>`).join('')}
       </div></div>
     </div>
@@ -1121,6 +1157,7 @@ const LIVE = {
   msSummary: kind=>msSummaryInner(kind),
   sessSummary: ()=>sessSummaryInner(),
   dayTotal: d=>dayTotalInner(d),
+  sessTally: ()=>tallyInner(),
   innScores: ()=>innScoresInner(),
   kpiMaidens: ()=>{ const a=document.activeElement; return (a && a.closest && a.closest('[data-live="kpiMaidens"]')) ? null : kpiMaidensInner(); },
   exportPreview: ()=>blocksToHTML(matchReportBlocks(G(), S())),
@@ -1223,6 +1260,7 @@ function matchCard(g){
     <div class="mc-opp">v ${esc(g.opponent||'Opponent TBC')}</div>
     ${meta?`<div class="mc-meta">${esc(meta)}</div>`:''}
     ${(sc.q||sc.o)?`<div class="mc-scores"><div><span>QLD</span>${esc(sc.q||'–')}</div><div><span>${esc(oppShort(g))}</span>${esc(sc.o||'–')}</div></div>`:''}
+    ${(()=>{ const t=sessResultTally([g]); return (t.won+t.even+t.lost)?`<div class="tally-wrap" style="margin-top:6px"><span class="tally won">Won ${t.won}</span><span class="tally even">Even ${t.even}</span><span class="tally lost">Lost ${t.lost}</span></div>`:''; })()}
     <div class="mc-foot"><span>${plural(nb,'batting review')}</span><span>${plural(nw,'bowling review')}</span>${w?`<span>${esc(L('tab.wtp'))} ${f1(w)}</span>`:''}</div>
   </button>`;
 }
@@ -1556,19 +1594,21 @@ function seasonSessionRows(s){
   const rows = SESSIONS.map(n=>{
     const t = {q:{r:0,w:0,n:0,b:0}, o:{r:0,w:0,n:0,b:0}};
     s.games.forEach(g=>{ const x = sessTotals(g, (d,nn)=>nn===n); ['q','o'].forEach(k=>{ t[k].r+=x[k].r; t[k].w+=x[k].w; t[k].n+=x[k].n; t[k].b+=x[k].b; }); });
-    return {n, ...t};
+    const res = {won:0, even:0, lost:0};
+    s.games.forEach(g=>Object.entries(g.sessionResults||{}).forEach(([k,v])=>{ if(k.endsWith('s'+n) && res[v]!==undefined) res[v]++; }));
+    return {n, ...t, res};
   });
-  return rows.some(r=>r.q.n||r.o.n) ? rows : null;
+  return rows.some(r=>r.q.n||r.o.n||r.res.won||r.res.even||r.res.lost) ? rows : null;
 }
 function rpw(x){ return x.w ? f1(x.r/x.w) : (x.n?String(x.r):'–'); }
 function rpo(x){ return x.b ? f2(x.r/(x.b/6)) : '–'; }
 function seasonSessionPanel(s){
   const rows = seasonSessionRows(s); if(!rows) return '';
   return `<div class="panel">
-    <div class="panel-head"><div class="panel-title">${LE('gs.sessions')}</div></div>
+    <div class="panel-head"><div class="panel-title">${LE('gs.sessions')}</div><span class="tally-wrap">${(()=>{ const t=sessResultTally(s.games); return (t.won+t.even+t.lost)?`<span class="tally won">Won ${t.won}</span><span class="tally even">Even ${t.even}</span><span class="tally lost">Lost ${t.lost}</span>`:''; })()}</span></div>
     <div class="table-wrap"><table class="stat-table">
-      <thead><tr><th></th><th>Overs batted</th><th>Runs scored</th><th>Wkts lost</th><th>Run rate</th><th>Overs bowled</th><th>Runs conceded</th><th>Wkts taken</th><th>Economy</th></tr></thead>
-      <tbody>${rows.map(r=>`<tr><td class="name">Session ${r.n}</td><td>${r.q.b?ballsToOvers(r.q.b):'–'}</td><td>${r.q.r}</td><td>${r.q.w}</td><td>${rpo(r.q)}</td><td>${r.o.b?ballsToOvers(r.o.b):'–'}</td><td>${r.o.r}</td><td>${r.o.w}</td><td>${rpo(r.o)}</td></tr>`).join('')}</tbody>
+      <thead><tr><th></th><th>Won</th><th>Even</th><th>Lost</th><th>Overs batted</th><th>Runs scored</th><th>Wkts lost</th><th>Run rate</th><th>Overs bowled</th><th>Runs conceded</th><th>Wkts taken</th><th>Economy</th></tr></thead>
+      <tbody>${rows.map(r=>`<tr><td class="name">Session ${r.n}</td><td style="color:var(--green);font-weight:700">${r.res.won}</td><td style="color:#8A6418;font-weight:700">${r.res.even}</td><td style="color:var(--red);font-weight:700">${r.res.lost}</td><td>${r.q.b?ballsToOvers(r.q.b):'–'}</td><td>${r.q.r}</td><td>${r.q.w}</td><td>${rpo(r.q)}</td><td>${r.o.b?ballsToOvers(r.o.b):'–'}</td><td>${r.o.r}</td><td>${r.o.w}</td><td>${rpo(r.o)}</td></tr>`).join('')}</tbody>
     </table></div>
   </div>`;
 }
@@ -1730,16 +1770,23 @@ function msTableBlock(rows){
 /* Session breakdown laid out like the dressing-room sheet: days across, sessions down. */
 function innTotalsBlock(g){ return {t:'kv', rows:innCells(g).map(([l,x])=>[l, fmtWR(x)])}; }
 function sessionGridBlock(g){
-  const days = DAYS.filter(d=>SESSIONS.some(n=>g.sessions[`d${d}s${n}`].some(slotText)));
+  const days = DAYS.filter(d=>SESSIONS.some(n=>g.sessions[`d${d}s${n}`].some(slotText) || (g.sessionResults||{})[`d${d}s${n}`]));
   const inn = slotInnings(g), o = oppShort(g);
   const cell = (d,n)=>{
     const sl = g.sessions[`d${d}s${n}`];
     const lines = sl.filter(x=>slotText(x)).map(x=>`${x.role==='bat'?'Bat':'Bowl'}, ${innLabel(inn.get(x)||1)}: ${slotText(x)}`);
+    const res = (g.sessionResults||{})[`d${d}s${n}`];
+    if(res) lines.unshift(`Session ${res}`);
     return lines.join('\n') || '–';
   };
   const rows = SESSIONS.map(n=>[`Session ${n}`, ...days.map(d=>cell(d,n))]);
   rows.push(['Day total', ...days.map(d=>dayLines(g,d).map(l=>`${l.team} ${l.score}${l.overs?` (${l.overs})`:''} ${l.inn}`).join('\n')||'–')]);
   return {t:'table', head:['', ...days.map(d=>`Day ${d}`)], rows, left:true, totals:1};
+}
+function sessionBlocks(g){
+  const t = sessResultTally([g]), any = t.won+t.even+t.lost;
+  if(!sessHasData(g) && !any) return [];
+  return [sessionGridBlock(g), ...(any?[{t:'small', text:`Sessions: ${tallyText(t)}`}]:[])];
 }
 function matchReportBlocks(g, s, mode){
   mode = mode || exportMode;
@@ -1754,7 +1801,7 @@ function matchReportBlocks(g, s, mode){
   if(url) b.push({t:'button', text:'View full scorecard', href:url});
   b.push({t:'kv', rows:kv});
   b.push({t:'h', text:L('gs.sessions')});
-  if(sessHasData(g)) b.push(sessionGridBlock(g)); else b.push({t:'p', text:''});
+  const sb = sessionBlocks(g); if(sb.length) b.push(...sb); else b.push({t:'p', text:''});
   b.push({t:'h', text:L('gs.summary')}, {t:'p', text:g.summary});
   b.push({t:'h', text:L('gs.positives')}, {t:'p', text:g.positives});
   b.push({t:'h', text:L('gs.learnings')}, {t:'p', text:g.learnings});
@@ -1792,7 +1839,7 @@ function matchSummaryBlocks(g, s){
   b.push({t:'kv', rows:[[L('gs.result'),g.result||'Not recorded'],
     [L('gs.venue')+', '+L('gs.date').toLowerCase(),[g.venue,fmtDate(g.date)].filter(Boolean).join(', ')||'–'],
     ['QLD',sc.q||'–'],[g.opponent||'Opponent',sc.o||'–']]});
-  if(sessHasData(g)) b.push({t:'h', text:L('gs.sessions')}, sessionGridBlock(g));
+  const sb = sessionBlocks(g); if(sb.length) b.push({t:'h', text:L('gs.sessions')}, ...sb);
   b.push({t:'h', text:L('gs.summary')}, {t:'p', text:g.summary});
   b.push({t:'h', text:L('gs.positives')}, {t:'p', text:g.positives});
   b.push({t:'h', text:L('gs.learnings')}, {t:'p', text:g.learnings});
@@ -1836,7 +1883,10 @@ function seasonReportBlocks(s){
     b.push({t:'p', text:g.summary});
   });
   const sr = seasonSessionRows(s);
-  if(sr) b.push({t:'h', text:L('gs.sessions')}, {t:'table', head:['Session','Overs batted','Runs','Wkts lost','Overs bowled','Runs conceded','Wkts taken'], rows:sr.map(r=>[`Session ${r.n}`, r.q.b?ballsToOvers(r.q.b):'–', r.q.r, r.q.w, r.o.b?ballsToOvers(r.o.b):'–', r.o.r, r.o.w])});
+  if(sr){
+    b.push({t:'h', text:L('gs.sessions')}, {t:'table', head:['Session','Won','Even','Lost','Overs batted','Runs','Wkts lost','Overs bowled','Runs conceded','Wkts taken'], rows:sr.map(r=>[`Session ${r.n}`, r.res.won, r.res.even, r.res.lost, r.q.b?ballsToOvers(r.q.b):'–', r.q.r, r.q.w, r.o.b?ballsToOvers(r.o.b):'–', r.o.r, r.o.w])});
+    const st = sessResultTally(s.games); if(st.won+st.even+st.lost) b.push({t:'small', text:`Sessions across the season: ${tallyText(st)}`});
+  }
   b.push({t:'h', text:L('tab.batting')});
   if(bat.length){
     b.push({t:'table', head:['Player','Inns','Runs','Avg','SR','HS','50+','100+'], rows:bat.map(p=>[p.name,p.inns,p.runs,f2(p.avg),f1(p.sr),p.hsText,p.fifties,p.hundreds])});

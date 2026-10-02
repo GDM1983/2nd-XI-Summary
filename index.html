@@ -1499,7 +1499,7 @@ function playerCard(p, list){
           <input type="text" data-name="${p.id}" list="dl-players" value="${esc(p.name)}" oninput="setItem('${list}','${p.id}','name',this.value)"></div>
         <button class="tool-btn danger" onclick="removeItem('${list}','${p.id}')">Remove</button>
       </div>
-      <div class="pc-fig" data-live="${bat?'batFig':'bowlFig'}" data-arg="${p.id}">${esc(bat?batFig(p):bowlFig(p))}</div>
+      ${bat?`<div class="pc-fig" data-live="batFig" data-arg="${p.id}">${esc(bat?batFig(p):bowlFig(p))}</div>`:''}
       <div class="inn-grid">${fields}</div>
       <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:10px;">
         <label class="field-label">${LE((bat?'bat':'bowl')+'.review')}</label>

@@ -184,6 +184,14 @@
   .pc-body-top{display:flex;gap:10px;align-items:flex-end;margin-top:14px;}
   .pc-body-top > div{flex:1;}
   .pc-fig{font-size:13px;font-weight:700;color:var(--turf);font-variant-numeric:tabular-nums;margin-top:10px;}
+  .att-box{margin-top:12px;background:var(--bone);border-radius:11px;padding:10px 12px;}
+  .att-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:4px 0;}
+  .att-link{display:inline-flex;align-items:center;gap:7px;font-size:13.5px;font-weight:600;color:var(--turf);text-decoration:none;}
+  .att-link:hover{text-decoration:underline;}
+  .att-add{display:grid;grid-template-columns:1fr auto;gap:6px;margin-top:6px;}
+  .att-add input{padding:7px 10px;font-size:13px;background:var(--paper);}
+  @media (max-width:600px){.att-add{grid-template-columns:1fr;}}
+  .att-inline{display:flex;flex-wrap:wrap;gap:12px;margin-top:4px;}
   .pc-season{font-size:12px;color:var(--ink-soft);margin-top:10px;}
   .pc-season b{color:var(--turf);font-weight:600;}
   .inn-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px;}
@@ -513,7 +521,7 @@ function newGame(round){
     wtp:blankWtp()};
 }
 const BAT_TEMPLATE = 'Dismissals\n1st innings - \n2nd innings - \n\n';
-function newBatter(){ return {id:uid(), name:'', i1r:'', i1b:'', i1no:false, i2r:'', i2b:'', i2no:false, review:BAT_TEMPLATE}; }
+function newBatter(){ return {id:uid(), name:'', i1r:'', i1b:'', i1no:false, i2r:'', i2b:'', i2no:false, review:BAT_TEMPLATE, files:[]}; }
 /* Review text without any unfilled template lines, so an untouched template never counts as a review or shows in exports. */
 function cleanReview(t){
   const lines = (t||'').split('\n').filter(l=>!/^\s*(1st|2nd) innings\s*-\s*$/i.test(l));
@@ -533,7 +541,7 @@ function addDismissalTemplate(id){
   const g = G(), b = g.batters.find(x=>x.id===id);
   b.review = BAT_TEMPLATE + (b.review||'').replace(/^\s+/,''); touchGame(g); render();
 }
-function newBowler(){ return {id:uid(), name:'', i1o:'', i1m:'', i1r:'', i1w:'', i2o:'', i2m:'', i2r:'', i2w:'', review:''}; }
+function newBowler(){ return {id:uid(), name:'', i1o:'', i1m:'', i1r:'', i1w:'', i2o:'', i2m:'', i2r:'', i2w:'', review:'', files:[]}; }
 function newPartnership(){ return {id:uid(), runs:'', wicket:'', batters:'', innings:'1'}; }
 function newMilestone(type){ return {id:uid(), player:'', type:type||'', detail:'', innings:'1'}; }
 function freshDb(){ const s = newSeason('2026/27'); return {activeSeasonId:s.id, seasons:[s], labels:{}, logo:''}; }
@@ -1162,6 +1170,24 @@ function removeItem(list, id){
   if((cleanReview(it.review)||it.name||it.runs||it.player||it.detail) && !confirm(`Remove ${label} from this match?`)) return;
   g[list] = g[list].filter(x=>x.id!==id); openPlayers.delete(id); touchGame(g); render();
 }
+/* ---- Linked files (e.g. a bowling coach's PDF review on OneDrive / SharePoint) ---- */
+function addPlayerFile(list, id){
+  const g = G(), p = g[list].find(x=>x.id===id); if(!p) return;
+  const urlEl = document.getElementById('fu-'+id);
+  const url = safeUrl(urlEl.value);
+  if(!url){ toast('Paste a full web link, e.g. from OneDrive or SharePoint'); urlEl.focus(); return; }
+  p.files = p.files || [];
+  const base = list==='bowlers' ? 'Bowling review' : 'Batting review';
+  const label = p.files.length ? `${base} ${p.files.length+1}` : base;   // the player's name already sits above it
+  p.files.push({id:uid(), label, url});
+  touchGame(g); render();
+}
+function removePlayerFile(list, id, fid){
+  const g = G(), p = g[list].find(x=>x.id===id); if(!p) return;
+  p.files = (p.files||[]).filter(f=>f.id!==fid); touchGame(g); render();
+}
+function fileIcon(){ return `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>`; }
+function filesHtml(files){ return (files||[]).map(f=>`<a class="att-link" href="${esc(f.url)}" target="_blank" rel="noopener">${fileIcon()}${esc(f.label)}</a>`).join(''); }
 function togglePlayer(id){
   const el = document.getElementById('pc-'+id); if(!el) return;
   const open = el.classList.toggle('open');
@@ -1480,6 +1506,11 @@ function playerCard(p, list){
         ${bat && !/dismissals/i.test(p.review||'') ? `<button class="tool-btn" style="margin-bottom:6px;" onclick="addDismissalTemplate('${p.id}')">Add dismissals lines</button>` : ''}
       </div>
       <textarea class="tall" oninput="setItem('${list}','${p.id}','review',this.value)">${esc(p.review)}</textarea>
+      <div class="att-box">
+        <div class="mini-label">Attached reviews</div>
+        ${(p.files||[]).map(f=>`<div class="att-row"><a class="att-link" href="${esc(f.url)}" target="_blank" rel="noopener">${fileIcon()}${esc(f.label)}</a><button class="kpi-x" onclick="removePlayerFile('${list}','${p.id}','${f.id}')" aria-label="Remove ${esc(f.label)}">×</button></div>`).join('')}
+        <div class="att-add"><input type="url" id="fu-${p.id}" placeholder="Link" onkeydown="if(event.key==='Enter')addPlayerFile('${list}','${p.id}')"><button class="tool-btn" onclick="addPlayerFile('${list}','${p.id}')">Attach</button></div>
+      </div>
       <div class="pc-season" data-live="${bat?'batSeason':'bowlSeason'}" data-arg="${p.id}">${LIVE[bat?'batSeason':'bowlSeason'](p.id)}</div>
     </div>
   </div>`;
@@ -1792,6 +1823,7 @@ function playerDetail(disc, key){
       <div class="ri-head"><div class="ri-title">${esc(gameTitle(e.game))}</div>
         <div style="display:flex;gap:14px;align-items:baseline;"><span class="ri-fig">${esc(disc==='bat'?batFig(e.item):bowlFig(e.item))}</span>
         <button class="link-btn" onclick="openMatch('${e.game.id}','${disc==='bat'?'batting':'bowling'}')">Edit</button></div></div>
+      ${(e.item.files||[]).length?`<div class="att-inline">${filesHtml(e.item.files)}</div>`:''}
       <div class="ri-text ${cleanReview(e.item.review)?'':'empty'}">${esc(cleanReview(e.item.review)||'No review written.')}</div>
     </div>`).join('')}
   </div>`;
@@ -1898,7 +1930,7 @@ function matchReportBlocks(g, s, mode){
   b.push({t:'h', text:L('tab.batting')});
   b.push({t:'sub', text:L('bat.summary')}, {t:'p', text:g.battingSummary});
   const bats = g.batters.filter(x=>(x.name||'').trim());
-  if(bats.length){ b.push({t:'sub', text:L('bat.players')}); bats.forEach(x=>b.push({t:'h3', text:x.name, meta:batFig(x)}, {t:'p', text:cleanReview(x.review)})); }
+  if(bats.length){ b.push({t:'sub', text:L('bat.players')}); bats.forEach(x=>{ b.push({t:'h3', text:x.name, meta:batFig(x)}, {t:'p', text:cleanReview(x.review)}); (x.files||[]).forEach(f=>b.push({t:'linkline', text:f.label, href:f.url})); }); }
   const parts = g.partnerships.filter(p=>has(p.runs));
   if(parts.length) b.push({t:'sub', text:L('bat.partnerships')}, {t:'table', head:['Runs','Wicket','Batters','Innings'], rows:parts.map(p=>[p.runs, p.wicket||'–', p.batters||'–', p.innings==='2'?'2nd inns':'1st inns'])});
   if(g.batMilestones.length) b.push({t:'sub', text:L('bat.milestones')}, msTableBlock(g.batMilestones));
@@ -1910,7 +1942,7 @@ function matchReportBlocks(g, s, mode){
   s.bowlMetrics.forEach(m=>{ if(metricValue(g,m)) mrows.push([m.label, kpiText(g,m)]); });
   b.push({t:'kv', rows:mrows});
   const bowls = g.bowlers.filter(x=>(x.name||'').trim());
-  if(bowls.length){ b.push({t:'sub', text:L('bowl.players')}); bowls.forEach(x=>b.push({t:'h3', text:x.name, meta:bowlFig(x)}, {t:'p', text:cleanReview(x.review)})); }
+  if(bowls.length){ b.push({t:'sub', text:L('bowl.players')}); bowls.forEach(x=>{ b.push({t:'h3', text:x.name, meta:bowlFig(x)}, {t:'p', text:cleanReview(x.review)}); (x.files||[]).forEach(f=>b.push({t:'linkline', text:f.label, href:f.url})); }); }
   if(g.bowlMilestones.length) b.push({t:'sub', text:L('bowl.milestones')}, msTableBlock(g.bowlMilestones));
 
   b.push({t:'h', text:L('tab.wtp')});
@@ -1936,6 +1968,7 @@ function matchSummaryBlocks(g, s){
   b.push({t:'h', text:L('tab.batting')}, {t:'p', text:g.battingSummary});
   const bats = g.batters.filter(x=>(x.name||'').trim() && batFig(x));
   if(bats.length) b.push({t:'table', head:['Batter','Scores'], rows:bats.map(x=>[x.name, batFig(x)])});
+  bats.forEach(x=>(x.files||[]).forEach(f=>b.push({t:'linkline', text:`${x.name}: ${f.label}`, href:f.url})));
   const ms = [...g.batMilestones.filter(m=>m.player||m.detail).map(m=>`${m.player||'–'} ${m.type}${m.detail?` (${m.detail})`:''}`)];
   const pb = partnershipBuckets([g]); const big = g.partnerships.filter(p=>num(p.runs)>=50).map(p=>`${p.runs} for the ${p.wicket||'?'} wicket${p.batters?` (${p.batters})`:''}`);
   if(ms.length) b.push({t:'small', text:`${L('bat.milestones')}: ${ms.join('; ')}`});
@@ -1944,6 +1977,7 @@ function matchSummaryBlocks(g, s){
   b.push({t:'h', text:L('tab.bowling')}, {t:'p', text:g.bowlingSummary});
   const bowls = g.bowlers.filter(x=>(x.name||'').trim() && bowlFig(x));
   if(bowls.length) b.push({t:'table', head:['Bowler','Figures'], rows:bowls.map(x=>[x.name, bowlFig(x)])});
+  bowls.forEach(x=>(x.files||[]).forEach(f=>b.push({t:'linkline', text:`${x.name}: ${f.label}`, href:f.url})));
   const sums = gameBowlerSums(g);
   const indicators = [`${sums.wkts} wickets`, ...s.bowlMetrics.map(m=>metricValue(g,m) ? `${m.label}: ${kpiText(g,m)}` : '').filter(Boolean)];
   b.push({t:'small', text:indicators.join(', ')});
@@ -2078,7 +2112,7 @@ function detailSections(g, s){
   // Batting
   const bb = [];
   const bats = g.batters.filter(x=>(x.name||'').trim());
-  bats.forEach(x=>bb.push({t:'h3', text:x.name, meta:batFig(x)}, {t:'p', text:cleanReview(x.review)}));
+  bats.forEach(x=>{ bb.push({t:'h3', text:x.name, meta:batFig(x)}, {t:'p', text:cleanReview(x.review)}); (x.files||[]).forEach(f=>bb.push({t:'linkline', text:f.label, href:f.url})); });
   const parts = g.partnerships.filter(p=>has(p.runs));
   if(parts.length) bb.push({t:'sub', text:L('bat.partnerships')}, {t:'table', head:['Runs','Wicket','Batters','Innings'], rows:parts.map(p=>[p.runs, p.wicket||'–', p.batters||'–', p.innings==='2'?'2nd inns':'1st inns'])});
   if(g.batMilestones.length) bb.push({t:'sub', text:L('bat.milestones')}, msTableBlock(g.batMilestones));
@@ -2086,7 +2120,7 @@ function detailSections(g, s){
   // Bowling
   const wb = [];
   const bowls = g.bowlers.filter(x=>(x.name||'').trim());
-  bowls.forEach(x=>wb.push({t:'h3', text:x.name, meta:bowlFig(x)}, {t:'p', text:cleanReview(x.review)}));
+  bowls.forEach(x=>{ wb.push({t:'h3', text:x.name, meta:bowlFig(x)}, {t:'p', text:cleanReview(x.review)}); (x.files||[]).forEach(f=>wb.push({t:'linkline', text:f.label, href:f.url})); });
   if(g.bowlMilestones.length) wb.push({t:'sub', text:L('bowl.milestones')}, msTableBlock(g.bowlMilestones));
   secs.push({id:'bowling', title:'Bowling reviews', count:bowls.length?plural(bowls.length,'bowler'):'', blocks:wb});
   // Way to Play

@@ -1969,24 +1969,26 @@ function briefBlocks(g, s){
   const focus = (g.focus||'').split('\n').map(l=>l.replace(/^\s*(\d+[.)]|[-•*])\s*/,'').trim()).filter(Boolean);
   if(focus.length) b.push({t:'focus', title:L('gs.focus'), items:focus});
 
-  // key numbers: bowling KPIs by innings
-  const ks = s.bowlMetrics.filter(m=>m.kind && metricValue(g,m));
-  if(ks.length){
-    const cell = (m,inn)=>{ const x=metricSplit(g,m), v=inn===1?x.a:x.b; if(v==null && !(inn===2 && x.b)) return '–'; const p=kpiPct(g,m,inn); return `${v||0}${p?` (${p})`:''}`; };
-    const two = ks.some(m=>metricSplit(g,m).b);
-    b.push({t:'h', text:'Key numbers'}, {t:'table', head: two?['','1st inns','2nd inns']:['','Match'], rows: ks.map(m=>two?[m.label, cell(m,1), cell(m,2)]:[m.label, cell(m,1)])});
-  }
-  // way to play in one line
-  const r = WTP_KEYS.filter(k=>g.wtp[k].rating);
-  if(r.length) b.push({t:'small', text:`${L('tab.wtp')}: ` + WTP_KEYS.map(k=>`${wtpLabel(k)} ${g.wtp[k].rating||'–'}`).join(', ')});
+  // top performers: most runs and most wickets across the match
+  const runsOf = x=> num(x.i1r)+num(x.i2r);
+  const wktsOf = x=> num(x.i1w)+num(x.i2w), concOf = x=> num(x.i1r)+num(x.i2r);
+  const topBat = g.batters.filter(x=>(x.name||'').trim() && runsOf(x)>0).sort((a,c)=>runsOf(c)-runsOf(a)).slice(0,4);
+  const topBowl = g.bowlers.filter(x=>(x.name||'').trim() && wktsOf(x)>0).sort((a,c)=>wktsOf(c)-wktsOf(a) || concOf(a)-concOf(c)).slice(0,4);
+  const batLine = x=>[has(x.i1r)?`${num(x.i1r)}${x.i1no?'*':''}`:'', has(x.i2r)?`${num(x.i2r)}${x.i2no?'*':''}`:''].filter(Boolean).join(' & ');
+  const bowlLine = x=>[has(x.i1o)?`${num(x.i1w)}/${num(x.i1r)}`:'', has(x.i2o)?`${num(x.i2w)}/${num(x.i2r)}`:''].filter(Boolean).join(' & ');
+  if(topBat.length || topBowl.length) b.push({t:'h', text:'Top performers'}, {t:'top',
+    bat: topBat.map(x=>({name:x.name, fig:batLine(x), files:x.files||[]})),
+    bowl: topBowl.map(x=>({name:x.name, fig:bowlLine(x), files:x.files||[]}))});
 
-  // players: names link to attached reviews
-  const bats = g.batters.filter(x=>(x.name||'').trim() && (batFig(x) || (x.files||[]).length));
-  const bowls = g.bowlers.filter(x=>(x.name||'').trim() && (bowlFig(x) || (x.files||[]).length));
-  if(bats.length) b.push({t:'h', text:'Batting'}, {t:'players', rows:bats.map(x=>({name:x.name, fig:batFig(x), files:x.files||[]}))});
-  if(bowls.length) b.push({t:'h', text:'Bowling'}, {t:'players', rows:bowls.map(x=>({name:x.name, fig:bowlFig(x), files:x.files||[]}))});
+  // way to play: one tile per category
+  if(WTP_KEYS.some(k=>g.wtp[k].rating)) b.push({t:'h', text:L('tab.wtp')}, {t:'wtp',
+    items: WTP_KEYS.map(k=>({label:wtpLabel(k), rating:g.wtp[k].rating||0, word:wtpScale(g.wtp[k].rating)}))});
 
-  if([...bats,...bowls].some(x=>(x.files||[]).length)) b.push({t:'small', text:'Underlined names have a review attached. Click to open it.'});
+  // every attached player review, one click each
+  const withFiles = [...g.batters, ...g.bowlers].filter(x=>(x.name||'').trim() && (x.files||[]).length);
+  const seen = new Set(), links = [];
+  withFiles.forEach(x=>(x.files||[]).forEach(f=>{ if(seen.has(f.url)) return; seen.add(f.url); links.push({name:x.name, label:f.label, url:f.url}); }));
+  if(links.length) b.push({t:'h', text:'Player reviews'}, {t:'reviews', items:links});
   return b;
 }
 function matchSummaryBlocks(g, s){
@@ -2097,6 +2099,27 @@ function blocksToHTML(blocks){
       case 'focus': return `<div style="margin:18px 0 6px;background:#FBF4E6;border-left:5px solid #E0A23E;border-radius:8px;padding:14px 18px 10px;">
           <div style="font-family:Georgia,'Times New Roman',serif;color:#6E1B3C;font-size:18px;font-weight:bold;margin-bottom:6px;">${esc(b.title)}</div>
           <ol style="margin:0 0 4px;padding-left:22px;">${b.items.map(i=>`<li style="margin:5px 0;font-size:14.5px;">${esc(i)}</li>`).join('')}</ol></div>`;
+      case 'top': {
+        const nm = r=> r.files.length ? `<a href="${esc(r.files[0].url)}" style="color:#6E1B3C;font-weight:bold;">${esc(r.name)}</a>` : `<b>${esc(r.name)}</b>`;
+        const col = (title, rows)=>`<td valign="top" width="50%" style="padding:0 8px 0 0;">
+          <div style="font-size:11.5px;font-weight:bold;letter-spacing:.04em;color:#8A918C;margin:2px 0 6px;">${title}</div>
+          <table cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse;">${rows.length?rows.map(r=>`<tr><td style="${EM.td}font-size:14px;">${nm(r)}</td><td style="${EM.td}text-align:right;font-size:14px;font-weight:bold;color:#6E1B3C;white-space:nowrap;">${esc(r.fig)}</td></tr>`).join(''):`<tr><td style="${EM.td}color:#8A918C;">–</td></tr>`}</table></td>`;
+        return `<table cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse;margin:4px 0 8px;"><tr>${col('BATTING', b.bat)}${col('BOWLING', b.bowl)}</tr></table>`;
+      }
+      case 'wtp': {
+        const tile = it=>{
+          const segs = [1,2,3,4,5].map(n=>`<td width="20%" style="height:7px;padding:0 1px;"><div style="height:7px;border-radius:2px;background:${n<=it.rating?'#6E1B3C':'#E6E1D4'};"></div></td>`).join('');
+          return `<td valign="top" width="20%" style="padding:0 4px;">
+            <div style="background:#F7F3EA;border-radius:10px;padding:10px 8px 10px;text-align:center;">
+              <div style="font-size:12px;line-height:1.3;font-weight:bold;color:#1B1F1C;height:32px;overflow:hidden;">${esc(it.label)}</div>
+              <div style="font-family:Georgia,serif;font-size:30px;font-weight:bold;line-height:1;margin-top:6px;color:${it.rating?'#6E1B3C':'#B9B3A6'};">${it.rating||'–'}<span style="font-size:13px;color:#8A918C;font-weight:normal;">/5</span></div>
+              <table cellpadding="0" cellspacing="0" width="100%" style="margin:8px 0 6px;"><tr>${segs}</tr></table>
+              <div style="font-size:11.5px;font-weight:bold;color:#9A6D1F;">${esc(it.word||'Not rated')}</div>
+            </div></td>`; };
+        return `<p style="margin:0 0 10px;font-size:12.5px;color:#565F59;">How we played against our Way to Play, rated 1 to 5. A 3 means we met the standard.</p>
+          <table cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse;margin:0 -4px 8px;"><tr>${b.items.map(tile).join('')}</tr></table>`;
+      }
+      case 'reviews': return `<p style="margin:2px 0 10px;font-size:14px;line-height:2;">${b.items.map(r=>`<a href="${esc(r.url)}" style="display:inline-block;margin:0 8px 6px 0;padding:4px 12px;border-radius:14px;background:#F3E8EC;color:#6E1B3C;font-weight:bold;text-decoration:none;">${esc(r.name)}: ${esc(r.label)}</a>`).join('')}</p>`;
       case 'list': return `<ol style="margin:4px 0 10px;padding-left:22px;">${b.items.map(i=>`<li style="margin:3px 0;">${esc(i)}</li>`).join('')}</ol>`;
       case 'players': return `<table cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:4px 0 8px;width:100%;">${b.rows.map(r=>{
           const f = r.files[0];
@@ -2129,6 +2152,9 @@ function blocksToText(blocks){
       case 'button': case 'linkline': return `${b.text}: ${b.href}`;
       case 'tally': return `Sessions: won ${b.won}, even ${b.even}, lost ${b.lost}`;
       case 'list': return b.items.map((x,i)=>`${i+1}. ${x}`).join('\n');
+      case 'top': return [b.bat.length?'Batting: '+b.bat.map(r=>`${r.name} ${r.fig}`).join('; '):'', b.bowl.length?'Bowling: '+b.bowl.map(r=>`${r.name} ${r.fig}`).join('; '):''].filter(Boolean).join('\n');
+      case 'wtp': return b.items.map(it=>`${it.label}: ${it.rating?'●'.repeat(it.rating)+'○'.repeat(5-it.rating)+` ${it.rating}/5 (${it.word})`:'Not rated'}`).join('\n');
+      case 'reviews': return b.items.map(r=>`${r.name}, ${r.label}: ${r.url}`).join('\n');
       case 'focus': return `\n${b.title.toUpperCase()}\n${'-'.repeat(b.title.length)}\n` + b.items.map((x,i)=>`${i+1}. ${x}`).join('\n');
       case 'players': return b.rows.map(r=>`${r.name}  ${r.fig||''}${r.files.length?`  (review: ${r.files.map(f=>f.url).join(', ')})`:''}`).join('\n');
       case 'table': return [b.head.join(' | '), ...b.rows.map(r=>r.map(c=>String(c).replace(/\n/g,', ')).join(' | '))].join('\n');

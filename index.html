@@ -2121,10 +2121,16 @@ function blocksToHTML(blocks){
         return `<p style="margin:0 0 10px;font-size:12.5px;color:#565F59;">How we played against our Way to Play, rated 1 to 5. A 3 means we met the standard.</p>
           <table cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse;margin:0 -4px 8px;"><tr>${b.items.map(tile).join('')}</tr></table>`;
       }
-      case 'reviews': return `<p style="margin:2px 0 4px;font-size:14px;line-height:2.1;">${b.items.map(r=> r.files.length===1
-          ? `<a href="${esc(r.files[0].url)}" style="display:inline-block;margin:0 8px 6px 0;padding:4px 14px;border-radius:14px;background:#F3E8EC;color:#6E1B3C;font-weight:bold;text-decoration:none;">${esc(r.name)}</a>`
-          : `<span style="display:inline-block;margin:0 8px 6px 0;padding:4px 6px 4px 14px;border-radius:14px;background:#F3E8EC;color:#6E1B3C;font-weight:bold;">${esc(r.name)}${r.files.map(f=>` <a href="${esc(f.url)}" style="display:inline-block;margin-left:4px;padding:0 9px;border-radius:10px;background:#fff;color:#6E1B3C;font-size:12px;text-decoration:none;">${esc(f.kind)}</a>`).join('')}</span>`).join('')}</p>
-        <p style="margin:0 0 10px;font-size:12px;color:#8A918C;">Click a name to open their review.</p>`;
+      case 'reviews': {
+        const pill = url=>`<a href="${esc(url)}" style="display:inline-block;padding:3px 12px;border-radius:12px;background:#6E1B3C;color:#FBFAF6;font-size:12px;font-weight:bold;text-decoration:none;">View</a>`;
+        const cell = (r, kind)=>{ const fs = r.files.filter(f=>f.kind.startsWith(kind));
+          return fs.length ? fs.map(f=>pill(f.url)).join(' ') : `<span style="color:#C9C3B6;">–</span>`; };
+        const th = `font-size:11.5px;font-weight:bold;letter-spacing:.04em;color:#8A918C;padding:2px 10px 6px;`;
+        return `<table cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse;margin:4px 0 10px;">
+          <tr><td style="${th}padding-left:0;">PLAYER</td><td width="110" style="${th}text-align:center;">BATTING</td><td width="110" style="${th}text-align:center;">BOWLING</td></tr>
+          ${b.items.map(r=>`<tr><td style="${EM.td}padding-left:0;font-size:14px;font-weight:bold;">${esc(r.name)}</td><td style="${EM.td}text-align:center;">${cell(r,'Batting')}</td><td style="${EM.td}text-align:center;">${cell(r,'Bowling')}</td></tr>`).join('')}
+        </table>`;
+      }
       case 'list': return `<ol style="margin:4px 0 10px;padding-left:22px;">${b.items.map(i=>`<li style="margin:3px 0;">${esc(i)}</li>`).join('')}</ol>`;
       case 'players': return `<table cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:4px 0 8px;width:100%;">${b.rows.map(r=>{
           const f = r.files[0];

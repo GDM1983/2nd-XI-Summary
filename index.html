@@ -449,7 +449,7 @@ const LABEL_DEFS = [
   {group:'Game summary', items:[
     ['gs.info','Match information'],['gs.round','Round'],['gs.opponent','Opponent'],['gs.venue','Venue'],['gs.date','Date'],['gs.result','Result'],
     ['gs.scorecard','Scorecard link'],['gs.sessions','Session breakdown'],['gs.scores','Innings scores'],['gs.summary','Match summary'],['gs.positives','Key positives'],
-    ['gs.learnings','Key learnings']]},
+    ['gs.learnings','Key learnings'],['gs.focus','Focus for next game']]},
   {group:'Batting', items:[
     ['bat.summary','Batting summary'],['bat.players','Batters'],['bat.review','Performance summary'],
     ['bat.partnerships','Partnerships'],['bat.milestones','Batting milestones']]},
@@ -515,7 +515,7 @@ function blankSlot(){ return {role:'', runs:'', wkts:'', overs:''}; }
 function blankSessions(){ const o={}; DAYS.forEach(d=>SESSIONS.forEach(n=>{ o[`d${d}s${n}`]=[blankSlot(),blankSlot()]; })); return o; }
 function newGame(round){
   return {id:uid(), round:String(round||''), opponent:'', venue:'', date:'', result:'', scorecardUrl:'', sessions:blankSessions(), sessionResults:{}, dec:{},
-    scores:{q1:'',o1:'',q2:'',o2:''}, summary:'', positives:'', learnings:'',
+    scores:{q1:'',o1:'',q2:'',o2:''}, summary:'', positives:'', learnings:'', focus:'',
     battingSummary:'', batters:[], partnerships:[], batMilestones:[],
     bowlingSummary:'', bowlMetrics:{}, bowlers:[], bowlMilestones:[],
     wtp:blankWtp()};
@@ -861,7 +861,7 @@ function gameBowlerSums(g){
 /* Completed overs QLD bowled in each innings (bowler figures first, otherwise the session breakdown). */
 function oversBowled(g, inn){
   let balls = 0; g.bowlers.forEach(b=>{ balls += oversToBalls(inn===1?b.i1o:b.i2o); });
-  if(!balls){ const t = sessTotals(g)['o'+inn]; balls = t ? t.b : 0; }
+  const t = sessTotals(g)['o'+inn]; if(t && t.b > balls) balls = t.b;   // innings total wins if bowler figures are incomplete
   return Math.floor(balls/6);
 }
 /* Runs QLD conceded in each innings (session breakdown first, so extras are included; otherwise bowler figures). */
@@ -1457,6 +1457,10 @@ function tabSummary(g){
     <div class="panel"><div class="panel-head"><div class="panel-title">${LE('gs.learnings')}</div></div>
       <textarea class="tall" oninput="setG('learnings',this.value)">${esc(g.learnings)}</textarea></div>
   </div>
+  <div class="panel">
+    <div class="panel-head"><div class="panel-title">${LE('gs.focus')}</div></div>
+    <textarea oninput="setG('focus',this.value)">${esc(g.focus)}</textarea>
+  </div>
 `;
 }
 
@@ -1658,13 +1662,13 @@ function tabWtp(g){
 }
 
 /* ---- Tab 5: Export ---- */
-let exportMode = 'summary';
+let exportMode = 'brief';
 function setExportMode(m){ exportMode = m; render(); }
 function tabExport(g){
   return `
   <div class="export-bar" style="justify-content:space-between;">
     <div class="seg" role="radiogroup" aria-label="Export version">
-      <button class="${exportMode==='summary'?'on':''}" role="radio" aria-checked="${exportMode==='summary'}" onclick="setExportMode('summary')">Summary</button>
+      <button class="${exportMode==='brief'?'on':''}" role="radio" aria-checked="${exportMode==='brief'}" onclick="setExportMode('brief')">Coaches' brief</button>
       <button class="${exportMode==='full'?'on':''}" role="radio" aria-checked="${exportMode==='full'}" onclick="setExportMode('full')">Full review</button>
     </div>
     <div class="btn-row">
@@ -1681,7 +1685,7 @@ function tabExport(g){
   <div class="report-paper" data-live="exportPreview">${LIVE.exportPreview()}</div>`;
 }
 function copyMatch(plain){ copyReport(matchReportBlocks(G(),S()), plain); }
-function downloadMatch(){ const g=G(); downloadReport(matchReportBlocks(g,S()), `QLD-2nd-XI-R${g.round}-v-${g.opponent||'TBC'}-${exportMode==='summary'?'Summary':'Full-review'}`); }
+function downloadMatch(){ const g=G(); downloadReport(matchReportBlocks(g,S()), `QLD-2nd-XI-R${g.round}-v-${g.opponent||'TBC'}-${exportMode==='brief'?'Coaches-brief':'Full-review'}`); }
 
 /* ============================= SEASON REVIEW ============================= */
 function renderSeasonReview(){
@@ -1911,7 +1915,7 @@ function sessionBlocks(g){
 }
 function matchReportBlocks(g, s, mode){
   mode = mode || exportMode;
-  if(mode==='summary') return matchSummaryBlocks(g, s);
+  if(mode==='summary' || mode==='brief') return briefBlocks(g, s);
   const b = [];
   const o = g.opponent || 'Opponent';
   const url = safeUrl(g.scorecardUrl);
@@ -1951,6 +1955,40 @@ function matchReportBlocks(g, s, mode){
   return b;
 }
 /* One-page version: everything the reader needs at a glance, no individual reviews. */
+/* ---- Coaches' brief: one page, player names link to attached reviews ---- */
+function briefBlocks(g, s){
+  const b = [], url = safeUrl(g.scorecardUrl), sc = scoresLine(g), o = g.opponent||'Opponent';
+  b.push({t:'title', text:`${L('gs.round')} ${g.round||'–'} v ${g.opponent||'Opponent TBC'}${g.result?`: ${g.result.toUpperCase()}`:''}`,
+    sub:[g.venue, fmtDate(g.date)].filter(Boolean).join(', ') || `${L('app.team')}, Season ${s.name}`});
+  if(url) b.push({t:'button', text:'View full scorecard', href:url});
+  b.push({t:'kv', rows:[['QLD', sc.q||'–'], [o, sc.o||'–']]});
+  const t = sessResultTally([g]);
+  if(t.won+t.even+t.lost) b.push({t:'tally', won:t.won, even:t.even, lost:t.lost});
+
+  if((g.summary||'').trim()) b.push({t:'h', text:'The game'}, {t:'p', text:g.summary});
+  const focus = (g.focus||'').split('\n').map(l=>l.replace(/^\s*(\d+[.)]|[-•*])\s*/,'').trim()).filter(Boolean);
+  if(focus.length) b.push({t:'focus', title:L('gs.focus'), items:focus});
+
+  // key numbers: bowling KPIs by innings
+  const ks = s.bowlMetrics.filter(m=>m.kind && metricValue(g,m));
+  if(ks.length){
+    const cell = (m,inn)=>{ const x=metricSplit(g,m), v=inn===1?x.a:x.b; if(v==null && !(inn===2 && x.b)) return '–'; const p=kpiPct(g,m,inn); return `${v||0}${p?` (${p})`:''}`; };
+    const two = ks.some(m=>metricSplit(g,m).b);
+    b.push({t:'h', text:'Key numbers'}, {t:'table', head: two?['','1st inns','2nd inns']:['','Match'], rows: ks.map(m=>two?[m.label, cell(m,1), cell(m,2)]:[m.label, cell(m,1)])});
+  }
+  // way to play in one line
+  const r = WTP_KEYS.filter(k=>g.wtp[k].rating);
+  if(r.length) b.push({t:'small', text:`${L('tab.wtp')}: ` + WTP_KEYS.map(k=>`${wtpLabel(k)} ${g.wtp[k].rating||'–'}`).join(', ')});
+
+  // players: names link to attached reviews
+  const bats = g.batters.filter(x=>(x.name||'').trim() && (batFig(x) || (x.files||[]).length));
+  const bowls = g.bowlers.filter(x=>(x.name||'').trim() && (bowlFig(x) || (x.files||[]).length));
+  if(bats.length) b.push({t:'h', text:'Batting'}, {t:'players', rows:bats.map(x=>({name:x.name, fig:batFig(x), files:x.files||[]}))});
+  if(bowls.length) b.push({t:'h', text:'Bowling'}, {t:'players', rows:bowls.map(x=>({name:x.name, fig:bowlFig(x), files:x.files||[]}))});
+
+  if([...bats,...bowls].some(x=>(x.files||[]).length)) b.push({t:'small', text:'Underlined names have a review attached. Click to open it.'});
+  return b;
+}
 function matchSummaryBlocks(g, s){
   const b = [];
   const url = safeUrl(g.scorecardUrl);
@@ -2055,6 +2093,16 @@ function blocksToHTML(blocks){
       case 'small': return `<p style="margin:2px 0 6px;color:#565F59;font-size:12.5px;">${nl2br(b.text)}</p>`;
       case 'chips': return `<p style="margin:4px 0 10px;">${b.items.map(i=>`<span style="display:inline-block;background:#F3E8EC;color:#6E1B3C;font-weight:bold;font-size:12.5px;padding:4px 10px;border-radius:12px;margin:0 6px 6px 0;">${esc(i)}</span>`).join('')}</p>`;
       case 'kv': return `<table cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:4px 0 8px;">${b.rows.map(([k,v])=>`<tr><td style="${EM.td}color:#565F59;width:190px;">${esc(k)}</td><td style="${EM.td}font-weight:bold;">${kvVal(v)}</td></tr>`).join('')}</table>`;
+      case 'tally': return `<p style="margin:2px 0 12px;font-size:13px;font-weight:bold;"><span style="color:#3C8B69;">&#9679; Won ${b.won}</span> &nbsp; <span style="color:#C89339;">&#9679; Even ${b.even}</span> &nbsp; <span style="color:#B5453D;">&#9679; Lost ${b.lost}</span> <span style="font-weight:normal;color:#565F59;">&nbsp;sessions</span></p>`;
+      case 'focus': return `<div style="margin:18px 0 6px;background:#FBF4E6;border-left:5px solid #E0A23E;border-radius:8px;padding:14px 18px 10px;">
+          <div style="font-family:Georgia,'Times New Roman',serif;color:#6E1B3C;font-size:18px;font-weight:bold;margin-bottom:6px;">${esc(b.title)}</div>
+          <ol style="margin:0 0 4px;padding-left:22px;">${b.items.map(i=>`<li style="margin:5px 0;font-size:14.5px;">${esc(i)}</li>`).join('')}</ol></div>`;
+      case 'list': return `<ol style="margin:4px 0 10px;padding-left:22px;">${b.items.map(i=>`<li style="margin:3px 0;">${esc(i)}</li>`).join('')}</ol>`;
+      case 'players': return `<table cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin:4px 0 8px;width:100%;">${b.rows.map(r=>{
+          const f = r.files[0];
+          const name = f ? `<a href="${esc(f.url)}" style="color:#6E1B3C;font-weight:bold;">${esc(r.name)}</a>` : `<span style="font-weight:bold;">${esc(r.name)}</span>`;
+          const more = r.files.slice(1).map((x,i)=>` <a href="${esc(x.url)}" style="color:#6E1B3C;font-size:12px;">review ${i+2}</a>`).join('');
+          return `<tr><td style="${EM.td}">${name}${more}</td><td style="${EM.td}text-align:right;">${esc(r.fig||'')}</td></tr>`; }).join('')}</table>`;
       case 'linkline': return `<p style="margin:2px 0 6px;font-size:12.5px;"><a href="${esc(b.href)}" style="color:#6E1B3C;font-weight:bold;">${esc(b.text)}</a></p>`;
       case 'button': return `<p style="margin:0 0 14px;"><a href="${esc(b.href)}" style="display:inline-block;background:#E0A23E;color:#3E0F22;font-weight:bold;font-size:13px;text-decoration:none;padding:9px 16px;border-radius:8px;">${esc(b.text)}</a></p>`;
       case 'table': {
@@ -2079,6 +2127,10 @@ function blocksToText(blocks){
       case 'chips': return b.items.join(', ');
       case 'kv': return b.rows.map(([k,v])=>`${k}: ${isLink(v)?v.link:v}`).join('\n');
       case 'button': case 'linkline': return `${b.text}: ${b.href}`;
+      case 'tally': return `Sessions: won ${b.won}, even ${b.even}, lost ${b.lost}`;
+      case 'list': return b.items.map((x,i)=>`${i+1}. ${x}`).join('\n');
+      case 'focus': return `\n${b.title.toUpperCase()}\n${'-'.repeat(b.title.length)}\n` + b.items.map((x,i)=>`${i+1}. ${x}`).join('\n');
+      case 'players': return b.rows.map(r=>`${r.name}  ${r.fig||''}${r.files.length?`  (review: ${r.files.map(f=>f.url).join(', ')})`:''}`).join('\n');
       case 'table': return [b.head.join(' | '), ...b.rows.map(r=>r.map(c=>String(c).replace(/\n/g,', ')).join(' | '))].join('\n');
     }
     return '';
@@ -2130,8 +2182,7 @@ function detailSections(g, s){
   return secs;
 }
 function reviewFileDoc(g, s){
-  const sum = matchSummaryBlocks(g, s);
-  sum[0] = {...sum[0], sub:`${L('app.team')}, Season ${s.name}`};
+  const sum = briefBlocks(g, s);
   const secs = detailSections(g, s);
   const title = sum[0].text;
   const logo = db.logo ? `<div class="logo"><img src="${esc(db.logo)}" alt=""></div>` : '';
